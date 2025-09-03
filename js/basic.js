@@ -677,8 +677,14 @@ window.askAI = async () => {
 
         // Add AI response to chat history
         window.addToChatHistory(aiText, false);
-
-    // No TTS for chat responses anymore; only display in chat
+        // In Chat Mode, speak AI response via avatar (Course Mode stays muted)
+        if (!isTeachingMode && avatarSynthesizer) {
+            try {
+                await window.speakLesson(aiText, ssmlOptionsFor('chat'), 'chat');
+            } catch (e) {
+                // fallback to silent if speaking fails
+            }
+        }
     } catch (err) {
         log('AI error: ' + (err?.message || String(err)))
         window.addToChatHistory('❌ Erro: ' + (err?.message || 'Falha na comunicação'), false);
