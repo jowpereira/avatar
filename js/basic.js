@@ -157,14 +157,23 @@ window.askAI = async () => {
         btn.disabled = true
         document.getElementById('stopSpeaking').disabled = false
 
-        const resp = await fetch('/api/generate', {
+        // Prefer LangGraph endpoint; fallback to generate
+        let resp = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message })
         })
         if (!resp.ok) {
-            const t = await resp.text()
-            throw new Error(t || 'AI request failed')
+            // fallback legacy endpoint
+            resp = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message })
+            })
+            if (!resp.ok) {
+                const t = await resp.text()
+                throw new Error(t || 'AI request failed')
+            }
         }
         const data = await resp.json()
         const aiText = data.text || ''
