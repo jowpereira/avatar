@@ -6,6 +6,7 @@ var avatarSynthesizer
 var peerConnection
 var useTcpForWebRTC = false
 var isSessionStarting = false
+var sessionStarted = false
 var previousAnimationFrameTimestamp = 0;
 
 // Logger
@@ -100,6 +101,8 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
         log("WebRTC status: " + peerConnection.iceConnectionState)
 
         if (peerConnection.iceConnectionState === 'connected') {
+            sessionStarted = true
+            isSessionStarting = false
             document.getElementById('stopSession').disabled = false
             const askAIButton = document.getElementById('askAI')
             if (askAIButton) askAIButton.disabled = false
@@ -107,6 +110,7 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
         }
 
         if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
+            sessionStarted = false
             const askAIButton = document.getElementById('askAI')
             if (askAIButton) askAIButton.disabled = true
             document.getElementById('stopSpeaking').disabled = true
@@ -142,6 +146,7 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
             const askAIButton = document.getElementById('askAI')
             if (askAIButton) askAIButton.disabled = true
             document.getElementById('configuration').hidden = false
+            isSessionStarting = false
         }
     );
 }
@@ -203,7 +208,7 @@ function htmlEncode(text) {
 }
 
 window.startSession = () => {
-    if (isSessionStarting) {
+    if (isSessionStarting || sessionStarted) {
         return
     }
     const cogSvcRegion = document.getElementById('region').value
@@ -349,6 +354,7 @@ window.stopSession = () => {
     document.getElementById('stopSession').disabled = true
     document.getElementById('stopSpeaking').disabled = true
     avatarSynthesizer.close()
+    sessionStarted = false
 }
 
 window.updataTransparentBackground = () => {
@@ -376,14 +382,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const apiKeyInput = document.getElementById('APIKey')
+    const regionInput = document.getElementById('region')
+    const enablePrivateEndpoint = document.getElementById('enablePrivateEndpoint')
+    const privateEndpointInput = document.getElementById('privateEndpoint')
+
+    const configValid = () => {
+        const keyOk = apiKeyInput && apiKeyInput.value.trim() !== ''
+        const usePrivate = enablePrivateEndpoint && enablePrivateEndpoint.checked
+        if (usePrivate) {
+            const peVal = privateEndpointInput ? privateEndpointInput.value.trim() : ''
+            return keyOk && peVal !== ''
+        }
+        // Region tem um valor padrão; basta ter a key
+        return keyOk
+    }
+
     const maybeStart = () => {
-        if ((apiKeyInput && apiKeyInput.value.trim() !== '') && !isSessionStarting) {
+        if (!isSessionStarting && !sessionStarted && configValid()) {
             window.startSession()
         }
     }
     if (apiKeyInput) {
         apiKeyInput.addEventListener('change', maybeStart)
         apiKeyInput.addEventListener('blur', maybeStart)
+    }
+    if (regionInput) {
+        regionInput.addEventListener('change', maybeStart)
+    }
+    if (enablePrivateEndpoint) {
+        enablePrivateEndpoint.addEventListener('change', maybeStart)
+    }
+    if (privateEndpointInput) {
+        privateEndpointInput.addEventListener('input', maybeStart)
+        privateEndpointInput.addEventListener('blur', maybeStart)
     }
     // Try immediately in case the key is prefilled (e.g., via password manager)
     maybeStart()
