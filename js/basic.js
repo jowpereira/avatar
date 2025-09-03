@@ -8,6 +8,7 @@ var useTcpForWebRTC = false
 var previousAnimationFrameTimestamp = 0;
 var chatHistory = [];
 var isAdvancing = false;
+var isSpeaking = false;
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
@@ -190,8 +191,8 @@ window.showPendingQuestions = async () => {
         const data = await resp.json();
         if (data.success && data.answers && data.answers.length > 0) {
             log(`📋 Respondendo ${data.answers.length} perguntas importantes:`);
-            // Preface before answering queued questions
-            await window.speakLesson('Então, respondendo ao chat:');
+            // Preface before answering queued questions (calmer style)
+            await window.speakLesson('Então, respondendo ao chat:', ssmlOptionsFor('preface'));
             
             for (const qa of data.answers) {
                 // Add to teaching chat
@@ -203,7 +204,7 @@ window.showPendingQuestions = async () => {
                 );
                 
                 // Make avatar speak the answer
-                await window.speakLesson(qa.answer);
+                await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'));
                 
                 // Small pause between answers
                 await new Promise(resolve => setTimeout(resolve, 1000));
@@ -225,11 +226,11 @@ window.answerPendingForCurrentTopic = async () => {
         if (!resp.ok) return;
         const data = await resp.json();
         if (data.success && data.answers && data.answers.length > 0) {
-            await window.speakLesson('Antes de avançarmos, respondendo as perguntas deste tópico:');
+            await window.speakLesson('Antes de avançarmos, respondendo as perguntas deste tópico:', ssmlOptionsFor('preface'));
             for (const qa of data.answers) {
                 window.addToTeachingChatHistory(`📌 Pergunta: ${qa.question}`, true);
                 window.addToTeachingChatHistory(`🎓 Resposta: ${qa.answer}`, false);
-                await window.speakLesson(qa.answer);
+                await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'));
                 await new Promise(r => setTimeout(r, 600));
             }
         }
@@ -267,18 +268,15 @@ window.loadCurrentLesson = async () => {
             const progressPercent = ((lesson.progress.topicIndex * 10 + lesson.progress.subtaskIndex + 1) / (lesson.progress.totalTopics * 10)) * 100;
             document.getElementById('progressFill').style.width = `${progressPercent}%`;
             
-            // Show lesson content
+            // Hide lesson text to avoid showing avatar script on screen
             const lessonContent = document.getElementById('lessonContent');
-            lessonContent.innerHTML = `
-                <div class="lesson-text">
-                    <h4>${lesson.subtaskTitle}</h4>
-                    <p>${lesson.content}</p>
-                </div>
-            `;
-            lessonContent.style.display = 'block';
+            if (lessonContent) {
+                lessonContent.innerHTML = '';
+                lessonContent.style.display = 'none';
+            }
             
             // Make avatar speak the lesson
-            await window.speakLesson(lesson.content);
+            await window.speakLesson(lesson.content, ssmlOptionsFor('lesson'));
             
         } else {
             throw new Error(data.error || 'Failed to load lesson');
@@ -319,20 +317,75 @@ function stripMarkdown(md) {
     return s.trim();
 }
 
-function buildSsml(content, ttsVoice) {
-    const plain = stripMarkdown(content || '');
-    const parts = plain.split(/\n\n+/).map(p => htmlEncode(p.trim())).filter(Boolean);
-    const body = parts.join("<break time='500ms' />");
-    return `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'>` +
-           `<voice name='${ttsVoice}'>` +
-           `<mstts:leadingsilence-exact value='0'/>` +
-           `<mstts:express-as style='chat'>` +
-           `<prosody rate='+5%' pitch='+2st'>${body}</prosody>` +
-           `</mstts:express-as>` +
-           `</voice></speak>`;
+// SSML style presets per content context
+function ssmlOptionsFor(kind) {
+    switch ((kind || '').toLowerCase()) {
+        case 'lesson':
+            return { style: 'chat', styledegree: '1.2', rate: '+5%', pitch: '+2st' };
+        case 'answer':
+            return { style: 'chat', styledegree: '1.1', rate: '+2%', pitch: '+1st' };
+        case 'queuedanswer':
+            return { style: 'chat', styledegree: '1.0', rate: '+0%', pitch: '+0st' };
+        case 'preface':
+            return { style: 'calm', styledegree: '1.0', rate: '+0%', pitch: '+0st' };
+        case 'chat':
+        default:
+            return { style: 'chat', styledegree: '1.2', rate: '+5%', pitch: '+1st' };
+    }
 }
 
-window.speakLesson = async (content) => {
+function buildSsml(content, ttsVoice, opts = {}) {
+    const plain = stripMarkdown(content || '');
+    const paragraphs = plain.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+    // Derive xml:lang from voice name when possible (e.g., pt-BR-AntonioNeural)
+    let lang = 'pt-BR';
+    if (ttsVoice && ttsVoice.includes('-')) {
+        const parts = ttsVoice.split('-');
+        if (parts.length >= 2) lang = `${parts[0]}-${parts[1]}`;
+    }
+
+    const style = opts.style || 'chat';
+    const styledegree = opts.styledegree || '1.2';
+    const rate = opts.rate || '+5%';
+    const pitch = opts.pitch || '+2st';
+    const sentenceBoundaryMs = opts.sentenceBoundaryMs || '40ms';
+    const paragraphBreakMs = opts.paragraphBreakMs || '700ms';
+
+    // Build p/s structure and add small pauses between paragraphs
+    const splitIntoSentences = (text) => {
+        const tokens = text.split(/([.!?…])/);
+        const out = [];
+        for (let i = 0; i < tokens.length; i += 2) {
+            const part = (tokens[i] || '').trim();
+            const punct = tokens[i + 1] || '';
+            const sentence = (part + punct).trim();
+            if (sentence) out.push(sentence);
+        }
+        return out;
+    };
+
+    const paragraphSsml = paragraphs.map(p => {
+        const sentences = splitIntoSentences(p);
+        const sentencesSsml = sentences.map(s => `<s>${htmlEncode(s)}</s>`).join('');
+        return `<p>${sentencesSsml}</p>`;
+    }).join(`
+            <break time='${paragraphBreakMs}' />
+        `);
+
+    return (
+        `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' ` +
+        `xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='${lang}'>` +
+        `<voice name='${ttsVoice}'>` +
+        `<mstts:leadingsilence-exact value='0'/>` +
+        `<mstts:silence type='Sentenceboundary' value='${sentenceBoundaryMs}'/>` +
+        `<mstts:express-as style='${style}' styledegree='${styledegree}'>` +
+        `<prosody rate='${rate}' pitch='${pitch}'>${paragraphSsml}</prosody>` +
+        `</mstts:express-as>` +
+        `</voice></speak>`
+    );
+}
+
+window.speakLesson = async (content, ssmlOptions = undefined) => {
     try {
         if (!avatarSynthesizer) {
             log('⚠️ Avatar não está disponível. Configure e inicie a sessão primeiro.');
@@ -342,8 +395,8 @@ window.speakLesson = async (content) => {
         // Always interrupt any ongoing speech before starting a new one
         try { await avatarSynthesizer.stopSpeakingAsync(); } catch {}
         
-        const ttsVoice = document.getElementById('ttsVoice').value;
-        const spokenSsml = buildSsml(content, ttsVoice);
+    const ttsVoice = document.getElementById('ttsVoice').value;
+    const spokenSsml = buildSsml(content, ttsVoice, ssmlOptions || {});
         
         document.getElementById('audio').muted = false;
         document.getElementById('stopSpeaking').disabled = false;
@@ -365,6 +418,12 @@ window.nextLesson = async () => {
 
         // Ensure we stop any current speech BEFORE moving to the next lesson
         try { if (avatarSynthesizer) await avatarSynthesizer.stopSpeakingAsync(); } catch {}
+
+        // Wait briefly for speaking state to settle (max 3s)
+        const waitUntil = Date.now() + 3000;
+        while (isSpeaking && Date.now() < waitUntil) {
+            await new Promise(r => setTimeout(r, 100));
+        }
 
         // Before advancing topic/subtask, answer any pending for current topic
         await window.answerPendingForCurrentTopic();
@@ -417,7 +476,7 @@ window.askTeachingQuestion = async () => {
             if (data.type === 'immediate') {
                 // Add answer to chat and speak it
                 window.addToTeachingChatHistory('🤖 ' + data.answer, false);
-                await window.speakLesson(data.answer);
+                await window.speakLesson(data.answer, ssmlOptionsFor('answer'));
             } else {
                 // Show system message (ignored or queued)
                 window.addToTeachingChatHistory('ℹ️ ' + data.message, false);
@@ -517,11 +576,20 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
             let spokenText = document.getElementById('spokenText').value
             let subtitles = document.getElementById('subtitles')
             const webRTCEvent = JSON.parse(e.data)
-            if (webRTCEvent.event.eventType === 'EVENT_TYPE_TURN_START' && document.getElementById('showSubtitles').checked) {
-                subtitles.hidden = false
-                subtitles.innerHTML = spokenText
+            if (webRTCEvent.event.eventType === 'EVENT_TYPE_TURN_START') {
+                isSpeaking = true
+                const show = document.getElementById('showSubtitles').checked
+                if (show) {
+                    subtitles.hidden = false
+                    subtitles.innerHTML = spokenText
+                }
+                const nextBtn = document.getElementById('nextLesson');
+                if (nextBtn) nextBtn.disabled = true;
             } else if (webRTCEvent.event.eventType === 'EVENT_TYPE_SESSION_END' || webRTCEvent.event.eventType === 'EVENT_TYPE_SWITCH_TO_IDLE') {
+                isSpeaking = false
                 subtitles.hidden = true
+                const nextBtn = document.getElementById('nextLesson');
+                if (nextBtn && !isAdvancing) nextBtn.disabled = false;
             }
             console.log("[" + (new Date()).toISOString() + "] WebRTC event received: " + e.data)
         }
@@ -624,7 +692,7 @@ window.askAI = async () => {
         window.addToChatHistory(aiText, false);
 
     // Speak the AI response via avatar using SSML
-    await window.speakLesson(aiText)
+    await window.speakLesson(aiText, ssmlOptionsFor('chat'))
     } catch (err) {
         log('AI error: ' + (err?.message || String(err)))
         window.addToChatHistory('❌ Erro: ' + (err?.message || 'Falha na comunicação'), false);
