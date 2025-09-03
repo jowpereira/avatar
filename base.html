@@ -3,104 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Talking Avatar Service Demo</title>
+    <title>Avatar Chat - IA Conversacional</title>
     <link href="./css/styles.css" rel="stylesheet">
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="./js/basic.js"></script>
 </head>
 <body>
-<h1>Talking Avatar Service Demo</h1>
+<div class="app-container">
+  <header class="app-header">
+    <h1>🤖 Avatar Chat - IA Conversacional</h1>
+    <button id="toggleConfig" class="config-toggle" onclick="window.toggleConfiguration()">⚙️ Configurações</button>
+  </header>
 
-<div id="configuration">
-  <h2 style="background-color: white; width: 300px;">Azure Speech Resource</h2>
-  <div id="azureSpeechResource" style="display: flex;align-items: center; flex-wrap: wrap;">
-    <div>
-      <label style="font-size: medium;" for="region">Region:</label>
-      <select id="region" style="font-size: medium;">
-        <option value="westus2">West US 2</option>
-        <option value="westeurope">West Europe</option>
-        <option value="southeastasia">Southeast Asia</option>
-        <option value="southcentralus">South Central US</option>
-        <option value="northeurope">North Europe</option>
-        <option value="swedencentral">Sweden Central</option>
-        <option value="eastus2">East US 2</option>
-      </select>
+<div id="configuration" class="config-panel">
+  <div class="config-section">
+    <h3>🔧 Azure Speech Resource</h3>
+    <div class="config-row">
+      <div class="form-group">
+        <label for="region">Region:</label>
+        <select id="region">
+          <option value="westus2">West US 2</option>
+          <option value="westeurope">West Europe</option>
+          <option value="southeastasia">Southeast Asia</option>
+          <option value="southcentralus">South Central US</option>
+          <option value="northeurope">North Europe</option>
+          <option value="swedencentral">Sweden Central</option>
+          <option value="eastus2">East US 2</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="APIKey">API Key:</label>
+        <input id="APIKey" type="password" placeholder="Cole sua API Key aqui" />
+      </div>
     </div>
-    <div>
-      <label style="font-size: medium;" for="APIKey">API Key:</label>
-      <input id="APIKey" type="password" size="32" style="font-size: medium;" />
+    <div class="checkbox-group">
+      <input type="checkbox" id="enablePrivateEndpoint" onchange="window.updatePrivateEndpoint()">
+      <label for="enablePrivateEndpoint">Enable Private Endpoint</label>
+    </div>
+    <div id="showPrivateEndpointCheckBox" class="form-group" hidden>
+      <label for="privateEndpoint">Private Endpoint:</label>
+      <input id="privateEndpoint" type="text" placeholder="https://{your custom name}.cognitiveservices.azure.com/" />
     </div>
   </div>
-  <div style="background-color: white; width: 300px;">
-    <input type="checkbox" id="enablePrivateEndpoint" onchange = "window.updatePrivateEndpoint()">Enable Private Endpoint</input><br />
-  </div>
-  <div id = "showPrivateEndpointCheckBox" hidden="hidden">
-    <label style="font-size: medium;" for="privateEndpoint">Private Endpoint:</label>
-    <input id="privateEndpoint" type="text" size="64" style="font-size: medium;" placeholder="https://{your custom name}.cognitiveservices.azure.com/"></input><br />
-  </div><br />
 
-  <h2 style="background-color: white; width: 300px;">TTS Configuration</h2>
-  <label style="font-size: medium;" for="ttsVoice">TTS Voice:</label>
-  <input id="ttsVoice" type="text" size="32" style="font-size: medium;" value="en-US-AvaMultilingualNeural"></input><br />
-  <label style="font-size: medium;" for="customVoiceEndpointId">Custom Voice Deployment ID (Endpoint ID):</label>
-  <input id="customVoiceEndpointId" type="text" size="32" style="font-size: medium;" value=""></input><br />
-  <br />
-
-  <h2 style="background-color: white; width: 300px;">Avatar Configuration</h2>
-  <label style="font-size: medium;" for="talkingAvatarCharacter">Avatar Character:</label>
-  <input id="talkingAvatarCharacter" type="text" size="16" style="font-size: medium;" value="lisa"></input><br />
-  <label style="font-size: medium;" for="talkingAvatarStyle">Avatar Style:</label>
-  <input id="talkingAvatarStyle" type="text" size="16" style="font-size: medium;" value="casual-sitting"></input><br />
-  <label style="font-size: medium;" for="backgroundColor">Background Color:</label>
-  <input id="backgroundColor" type="text" size="16" style="font-size: medium;" value="#FFFFFFFF"></input><br />
-  <label style="font-size: medium;" for="backgroundImageUrl">Background Image (URL):</label>
-  <input id="backgroundImageUrl" type="text" size="64" style="font-size: medium;" placeholder="https://www.example.com/1920-1080-image.jpg" value=""></input><br />
-  <div style="background-color: white; width: 400px;">
-    <input type="checkbox" id="customizedAvatar" onchange="window.updateCustomAvatarBox()">Custom Avatar</input>
-    <input type="checkbox" id="useBuiltInVoice" style="width: 12px;" disabled>Use Built-In Voice</input><br /> 
-    <input type="checkbox" id="transparentBackground" onchange="window.updataTransparentBackground()">Transparent
-    Background</input><br />
-    <input type="checkbox" id="videoCrop">Video Crop</input><br />
-    <input type="checkbox" id="showSubtitles">Show Subtitles</input><br />
+  <div class="config-section">
+    <h3>🎤 TTS Configuration</h3>
+    <div class="form-group">
+      <label for="ttsVoice">TTS Voice:</label>
+      <input id="ttsVoice" type="text" value="en-US-AvaMultilingualNeural" />
+    </div>
+    <div class="form-group">
+      <label for="customVoiceEndpointId">Custom Voice Deployment ID:</label>
+      <input id="customVoiceEndpointId" type="text" placeholder="Endpoint ID opcional" />
+    </div>
   </div>
-  <br />
+
+  <div class="config-section">
+    <h3>👤 Avatar Configuration</h3>
+    <div class="config-row">
+      <div class="form-group">
+        <label for="talkingAvatarCharacter">Avatar Character:</label>
+        <input id="talkingAvatarCharacter" type="text" value="lisa" />
+      </div>
+      <div class="form-group">
+        <label for="talkingAvatarStyle">Avatar Style:</label>
+        <input id="talkingAvatarStyle" type="text" value="casual-sitting" />
+      </div>
+    </div>
+    <div class="config-row">
+      <div class="form-group">
+        <label for="backgroundColor">Background Color:</label>
+        <input id="backgroundColor" type="text" value="#FFFFFFFF" />
+      </div>
+      <div class="form-group">
+        <label for="backgroundImageUrl">Background Image (URL):</label>
+        <input id="backgroundImageUrl" type="text" placeholder="https://www.example.com/1920-1080-image.jpg" />
+      </div>
+    </div>
+    <div class="checkbox-group">
+      <input type="checkbox" id="customizedAvatar" onchange="window.updateCustomAvatarBox()">
+      <label for="customizedAvatar">Custom Avatar</label>
+      <input type="checkbox" id="useBuiltInVoice" disabled>
+      <label for="useBuiltInVoice">Use Built-In Voice</label>
+    </div>
+    <div class="checkbox-group">
+      <input type="checkbox" id="transparentBackground" onchange="window.updataTransparentBackground()">
+      <label for="transparentBackground">Transparent Background</label>
+      <input type="checkbox" id="videoCrop">
+      <label for="videoCrop">Video Crop</label>
+      <input type="checkbox" id="showSubtitles">
+      <label for="showSubtitles">Show Subtitles</label>
+    </div>
+  </div>
+
+  <div class="config-section">
+    <h3>🎯 Controls</h3>
+    <div class="button-group">
+      <button id="startSession" onclick="window.startSession()" class="btn btn-primary">🚀 Start Session</button>
+      <button id="speak" onclick="window.speak()" disabled class="btn btn-secondary">🗣️ Speak</button>
+      <button id="stopSpeaking" onclick="window.stopSpeaking()" disabled class="btn btn-warning">⏹️ Stop Speaking</button>
+      <button id="stopSession" onclick="window.stopSession()" disabled class="btn btn-danger">🛑 Stop Session</button>
+    </div>
+  </div>
 </div>
 
-<h2 style="background-color: white; width: 300px;">Avatar Control Panel</h2>
-<!-- Spoken Text removed from UI but kept hidden for compatibility with subtitle logic -->
+<div class="main-content">
+  <div class="chat-container">
+    <div class="video-section">
+      <h3 id="videoLabel">🎬 Avatar Video</h3>
+      <div id="videoContainer" class="video-wrapper">
+        <div id="overlayArea" class="video-overlay" hidden>
+          <p id="overlayText">Live Video</p>
+        </div>
+        <div id="remoteVideo"></div>
+        <div id="subtitles" class="subtitles" hidden></div>
+        <canvas id="canvas" class="video-canvas" hidden></canvas>
+        <canvas id="tmpCanvas" class="video-canvas" hidden></canvas>
+      </div>
+    </div>
+    
+    <div class="chat-section">
+      <div class="chat-header">
+        <h3>💬 Conversa com o Avatar</h3>
+        <button id="clearChat" onclick="window.clearChatHistory()" class="btn btn-small">🗑️ Limpar</button>
+      </div>
+      <div id="chatHistory" class="chat-history"></div>
+      <div class="chat-input-section">
+        <div class="input-group">
+          <input id="userPrompt" type="text" placeholder="Digite sua mensagem aqui..." 
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();window.askAI()}" />
+          <button id="askAI" onclick="window.askAI()" disabled class="btn btn-primary">📨 Enviar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden elements for compatibility -->
 <textarea id="spokenText" hidden> </textarea>
-<button id="startSession" onclick="window.startSession()">Start Session</button>
-<button id="speak" onclick="window.speak()" disabled="disabled">Speak</button>
-<br/>
-<label style="font-size: medium;" for="userPrompt">Mensagem para a IA/Avatar:</label><br/>
-<input id="userPrompt" type="text" style="width: 800px; font-size: medium;" placeholder="Digite sua mensagem e pressione Enter ou clique em Enviar" onkeydown="if(event.key==='Enter'){event.preventDefault();window.askAI()}" />
-<button id="askAI" onclick="window.askAI()" disabled="disabled">Enviar</button>
-<button id="stopSpeaking" onclick="window.stopSpeaking()" disabled="disabled">Stop Speaking</button>
-<button id="stopSession" onclick="window.stopSession()" disabled="disabled">Stop Session</button>
-<br/>
 
-<h2 id="videoLabel" style="background-color: white; width: 300px;">Avatar Video</h2>
-<div id="videoContainer" style="position: relative; max-width: 960px;">
-  <div id="overlayArea" style="position: absolute;" hidden="hidden">
-    <!-- Add your text or image controls here -->
-    <p id="overlayText" style="font-size: large;">Live Video</p>
-    <!-- <img id="overlayImage" src="your-image-source.png" alt="Overlay Image"> -->
+<div class="logs-section" id="logsSection">
+  <div class="logs-header">
+    <h3>📝 System Logs</h3>
+    <button onclick="window.toggleLogs()" class="btn btn-small">👁️ Toggle</button>
   </div>
-  <div id="remoteVideo"></div>
-  <div id="subtitles" style="
-        width: 100%;
-        text-align: center;
-        color: white; 
-        text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
-        position: absolute; 
-        bottom: 5%; 
-        z-index: 999;" hidden></div>
-  <canvas id="canvas" max-width="1920" height="1080" style="background-color: transparent;" hidden="hidden"></canvas>
-  <canvas id="tmpCanvas" max-width="1920" height="1080" hidden="hidden"></canvas>
+  <div id="logging" class="logs-content"></div>
 </div>
-<br/>
 
-<h2 style="background-color: white; width: 300px;">Logs</h2>
-<div id="logging" style="background-color: white;"></div>
-</body>
-</html>
+</div> <!-- app-container -->

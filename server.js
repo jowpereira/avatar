@@ -8,6 +8,10 @@ import bodyParser from 'body-parser'
 import { fileURLToPath } from 'url'
 import { ChatOpenAI } from '@langchain/openai'
 import { StateGraph, START, END } from '@langchain/langgraph'
+import dotenv from 'dotenv'
+
+// Load environment variables
+dotenv.config()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -19,10 +23,10 @@ app.use(bodyParser.json())
 app.use(express.static(path.join(__dirname)))
 
 const llm = new ChatOpenAI({
-  model: 'gpt-5-nano',
+  model: 'gpt-4o-mini', // Changed to available model
   temperature: 0.6,
   maxTokens: 256,
-  // OPENAI_API_KEY é lido automaticamente de process.env.OPENAI_API_KEY
+  openAIApiKey: process.env.OPENAI_API_KEY || 'your-openai-api-key-here'
 })
 
 app.post('/api/generate', async (req, res) => {

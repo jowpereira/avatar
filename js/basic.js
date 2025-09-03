@@ -6,11 +6,69 @@ var avatarSynthesizer
 var peerConnection
 var useTcpForWebRTC = false
 var previousAnimationFrameTimestamp = 0;
+var chatHistory = [];
 
 // Logger
 const log = msg => {
     document.getElementById('logging').innerHTML += msg + '<br>'
 }
+
+// Chat History Management
+window.addToChatHistory = (message, isUser = false) => {
+    const timestamp = new Date().toLocaleTimeString();
+    chatHistory.push({
+        message,
+        isUser,
+        timestamp
+    });
+    
+    const chatHistoryElement = document.getElementById('chatHistory');
+    if (chatHistoryElement) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${isUser ? 'user' : 'assistant'}`;
+        messageDiv.innerHTML = `
+            <div class="message-content">${message}</div>
+            <div class="message-time">${timestamp}</div>
+        `;
+        chatHistoryElement.appendChild(messageDiv);
+        chatHistoryElement.scrollTop = chatHistoryElement.scrollHeight;
+    }
+}
+
+window.clearChatHistory = () => {
+    chatHistory = [];
+    const chatHistoryElement = document.getElementById('chatHistory');
+    if (chatHistoryElement) {
+        chatHistoryElement.innerHTML = '';
+    }
+}
+
+window.toggleConfiguration = () => {
+    const config = document.getElementById('configuration');
+    if (config) {
+        config.style.display = config.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+window.toggleLogs = () => {
+    const logs = document.getElementById('logging');
+    if (logs) {
+        logs.style.display = logs.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// Enter key support for chat input
+document.addEventListener('DOMContentLoaded', () => {
+    const userPrompt = document.getElementById('userPrompt');
+    if (userPrompt) {
+        userPrompt.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                window.askAI();
+            }
+        });
+    }
+});
 
 // Setup WebRTC
 function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
@@ -154,8 +212,13 @@ window.askAI = async () => {
         if (!btn || !input) return
         const message = (input.value || '').trim()
         if (!message) return
+        
+        // Add user message to chat history
+        window.addToChatHistory(message, true);
+        
         btn.disabled = true
         document.getElementById('stopSpeaking').disabled = false
+        input.value = ''; // Clear input
 
         // Prefer LangGraph endpoint; fallback to generate
         let resp = await fetch('/api/chat', {
@@ -179,6 +242,9 @@ window.askAI = async () => {
         const aiText = data.text || ''
         if (!aiText) throw new Error('Empty AI response')
 
+        // Add AI response to chat history
+        window.addToChatHistory(aiText, false);
+
         // Mirror into spokenText for subtitles behavior
         const spokenEl = document.getElementById('spokenText')
         if (spokenEl) spokenEl.value = aiText
@@ -189,6 +255,7 @@ window.askAI = async () => {
         await avatarSynthesizer.speakSsmlAsync(spokenSsml)
     } catch (err) {
         log('AI error: ' + (err?.message || String(err)))
+        window.addToChatHistory('❌ Erro: ' + (err?.message || 'Falha na comunicação'), false);
     } finally {
         const btn = document.getElementById('askAI')
         if (btn) btn.disabled = false
