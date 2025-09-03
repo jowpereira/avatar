@@ -13,6 +13,7 @@ var currentSpeechKind = 'idle';
 var resumeLessonAfterAnswer = false;
 var lastSpokenSsml = '';
 var hybridCancel = { cancel: false };
+var teachingBatchCancel = { cancel: false };
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
@@ -255,7 +256,13 @@ window.stopTeaching = async () => {
         if (!resp.ok) throw new Error('Failed to stop teaching');
         
         teachingState.isActive = false;
+    try { teachingBatchCancel.cancel = true; } catch {}
         
+        // Stop any batch video playback
+        try {
+            const batchVideo = document.getElementById('batchVideo');
+            if (batchVideo) { batchVideo.pause(); batchVideo.currentTime = 0; }
+        } catch {}
         // Update UI
         document.getElementById('startTeaching').disabled = false;
         document.getElementById('pauseTeaching').disabled = true;
@@ -367,8 +374,14 @@ window.loadCurrentLesson = async () => {
                 lessonContent.style.display = 'none';
             }
             
-            // Start structured lesson playback (paragraph by paragraph)
-            startLessonPlayback(lesson.content);
+            // Prefer chunked batch video with gestures; fallback to real-time paragraph playback
+            try {
+                teachingBatchCancel = { cancel: false };
+                await window.playLessonAsBatchSegments(lesson.content);
+            } catch (e) {
+                log('ℹ️ Batch indisponível no curso, usando reprodução em tempo real. ' + (e?.message || e));
+                startLessonPlayback(lesson.content);
+            }
             
         } else {
             throw new Error(data.error || 'Failed to load lesson');
@@ -378,6 +391,149 @@ window.loadCurrentLesson = async () => {
         console.error('Lesson loading error:', err);
     }
 };
+
+// Play full lesson as a single batch video with gestures
+window.playLessonAsBatch = async (lessonText) => {
+    if (!lessonText) throw new Error('Conteúdo vazio');
+    const ttsVoice = document.getElementById('ttsVoice')?.value || '';
+    const ssml = buildSsml(lessonText, ttsVoice, ssmlOptionsFor('lesson'));
+    lastSpokenSsml = ssml;
+    const region = document.getElementById('region')?.value || '';
+    const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
+    const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
+    const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+    const payload = { region, ssml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' };
+
+    const nextBtn = document.getElementById('nextLesson');
+    if (nextBtn) nextBtn.disabled = true;
+    log('🎬 Gerando vídeo do curso com gestos...');
+
+    const submit = await fetch('/api/avatar/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!submit.ok) {
+        const t = await submit.text();
+        throw new Error('Falha ao enviar batch do curso: ' + t);
+    }
+    const sd = await submit.json();
+    const opLoc = sd.operationLocation;
+    if (!opLoc) throw new Error('Operation-Location ausente');
+
+    const start = Date.now();
+    const timeoutMs = 90000; // 90s
+    let resultUrl = null, status = 'NotStarted';
+    while (Date.now() - start < timeoutMs) {
+        await new Promise(r => setTimeout(r, 3000));
+        const st = await fetch(`/api/avatar/batch-status?operationLocation=${encodeURIComponent(opLoc)}`);
+        if (!st.ok) {
+            const tt = await st.text();
+            throw new Error('Falha ao consultar status: ' + tt);
+        }
+        const sj = await st.json();
+        status = sj.status;
+        resultUrl = sj.resultUrl;
+        if (status === 'Succeeded' && resultUrl) break;
+        if (status === 'Failed') throw new Error('Batch do curso falhou');
+    }
+    if (!resultUrl) throw new Error('Sem resultado do batch no tempo esperado');
+
+    const batchVideo = document.getElementById('batchVideo');
+    if (!batchVideo) throw new Error('Elemento de vídeo batch não encontrado');
+    batchVideo.src = resultUrl;
+    batchVideo.hidden = false;
+    await batchVideo.play().catch(() => {});
+    batchVideo.onended = () => {
+        const btn = document.getElementById('nextLesson');
+        if (btn) btn.disabled = false;
+    };
+}
+
+// Play lesson as multiple short batch segments for lower latency
+window.playLessonAsBatchSegments = async (lessonText) => {
+    const region = document.getElementById('region')?.value || '';
+    const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
+    const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
+    const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+    const ttsVoice = document.getElementById('ttsVoice')?.value || '';
+    const batchVideo = document.getElementById('batchVideo');
+    if (!batchVideo) throw new Error('Elemento de vídeo batch não encontrado');
+    if (!lessonText) throw new Error('Conteúdo vazio');
+
+    const paras = getParagraphsFromContent(lessonText);
+    const segments = [];
+    // Split into ~2-3 sentence chunks per paragraph
+    const splitIntoSentences = (text) => {
+        const tokens = text.split(/([.!?…])/);
+        const out = [];
+        for (let i = 0; i < tokens.length; i += 2) {
+            const part = (tokens[i] || '').trim();
+            const punct = tokens[i + 1] || '';
+            const sentence = (part + punct).trim();
+            if (sentence) out.push(sentence);
+        }
+        return out;
+    };
+    for (const p of paras) {
+        const sents = splitIntoSentences(p);
+        let buf = [];
+        for (const s of sents) {
+            buf.push(s);
+            const chars = buf.join(' ').length;
+            if (buf.length >= 3 || chars > 260) { // small chunk
+                segments.push(buf.join(' '));
+                buf = [];
+            }
+        }
+        if (buf.length) segments.push(buf.join(' '));
+    }
+
+    const nextBtn = document.getElementById('nextLesson');
+    if (nextBtn) nextBtn.disabled = true;
+    log(`🎬 Gerando ${segments.length} segmentos do curso com gestos...`);
+
+    for (let i = 0; i < segments.length; i++) {
+        if (teachingBatchCancel.cancel) throw new Error('Cancelado');
+        const ssml = buildSsml(segments[i], ttsVoice, ssmlOptionsFor('lesson'));
+        lastSpokenSsml = ssml;
+        const submit = await fetch('/api/avatar/batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region, ssml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' })
+        });
+        if (!submit.ok) {
+            const t = await submit.text();
+            throw new Error('Falha ao enviar segmento: ' + t);
+        }
+        const sd = await submit.json();
+        const opLoc = sd.operationLocation;
+        if (!opLoc) throw new Error('Operation-Location ausente');
+
+        // Shorter timeout per segment
+        const start = Date.now();
+        const timeoutMs = 45000; // 45s
+        let resultUrl = null, status = 'NotStarted';
+        while (!teachingBatchCancel.cancel && Date.now() - start < timeoutMs) {
+            await new Promise(r => setTimeout(r, 2000));
+            const st = await fetch(`/api/avatar/batch-status?operationLocation=${encodeURIComponent(opLoc)}`);
+            if (!st.ok) throw new Error('Falha ao consultar status');
+            const sj = await st.json();
+            status = sj.status;
+            resultUrl = sj.resultUrl;
+            if (status === 'Succeeded' && resultUrl) break;
+            if (status === 'Failed') throw new Error('Batch do segmento falhou');
+        }
+        if (teachingBatchCancel.cancel) throw new Error('Cancelado');
+        if (!resultUrl) throw new Error('Sem resultado no tempo esperado para segmento');
+
+        // Play this segment
+        batchVideo.src = resultUrl;
+        batchVideo.hidden = false;
+        await batchVideo.play().catch(() => {});
+        await new Promise(resolve => {
+            const onEnded = () => { batchVideo.removeEventListener('ended', onEnded); resolve(); };
+            batchVideo.addEventListener('ended', onEnded);
+        });
+    }
+
+    if (nextBtn) nextBtn.disabled = false;
+}
 
 // Make avatar speak lesson content
 // Basic Markdown to plain text sanitizer to avoid reading symbols literally
@@ -589,6 +745,11 @@ window.nextLesson = async () => {
         if (nextBtn) nextBtn.disabled = true;
 
         // Ensure we stop any current speech BEFORE moving to the next lesson
+        try { teachingBatchCancel.cancel = true; } catch {}
+        try {
+            const batchVideo = document.getElementById('batchVideo');
+            if (batchVideo) { batchVideo.pause(); batchVideo.currentTime = 0; }
+        } catch {}
         try { if (avatarSynthesizer) await avatarSynthesizer.stopSpeakingAsync(); } catch {}
 
         // Wait briefly for speaking state to settle (max 3s)
