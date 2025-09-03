@@ -7,6 +7,7 @@ var peerConnection
 var useTcpForWebRTC = false
 var previousAnimationFrameTimestamp = 0;
 var chatHistory = [];
+var isAdvancing = false;
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
@@ -217,6 +218,24 @@ window.showPendingQuestions = async () => {
     }
 };
 
+// Answer pending questions for the current topic (called before advancing)
+window.answerPendingForCurrentTopic = async () => {
+    try {
+        const resp = await fetch('/api/teaching/answer-pending?scope=currentTopic', { method: 'POST' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.success && data.answers && data.answers.length > 0) {
+            await window.speakLesson('Antes de avançarmos, respondendo as perguntas deste tópico:');
+            for (const qa of data.answers) {
+                window.addToTeachingChatHistory(`📌 Pergunta: ${qa.question}`, true);
+                window.addToTeachingChatHistory(`🎓 Resposta: ${qa.answer}`, false);
+                await window.speakLesson(qa.answer);
+                await new Promise(r => setTimeout(r, 600));
+            }
+        }
+    } catch {}
+};
+
 // Load current lesson content
 window.loadCurrentLesson = async () => {
     try {
@@ -271,6 +290,48 @@ window.loadCurrentLesson = async () => {
 };
 
 // Make avatar speak lesson content
+// Basic Markdown to plain text sanitizer to avoid reading symbols literally
+function stripMarkdown(md) {
+    if (!md) return '';
+    let s = md;
+    // Remove code blocks
+    s = s.replace(/```[\s\S]*?```/g, '');
+    // Inline code
+    s = s.replace(/`([^`]+)`/g, '$1');
+    // Headings
+    s = s.replace(/^#{1,6}\s+/gm, '');
+    // Bold/italic
+    s = s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/__([^_]+)__/g, '$1').replace(/_([^_]+)_/g, '$1');
+    // Images ![alt](url) -> alt
+    s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
+    // Links [text](url) -> text
+    s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    // Lists bullets
+    s = s.replace(/^\s*[-+*]\s+/gm, '• ');
+    // Blockquotes
+    s = s.replace(/^>\s?/gm, '');
+    // Excess asterisks/hashtags
+    s = s.replace(/[#*_]{1,}/g, '');
+    // Collapse spaces
+    s = s.replace(/[ \t]+/g, ' ');
+    // Normalize newlines
+    s = s.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+    return s.trim();
+}
+
+function buildSsml(content, ttsVoice) {
+    const plain = stripMarkdown(content || '');
+    const parts = plain.split(/\n\n+/).map(p => htmlEncode(p.trim())).filter(Boolean);
+    const body = parts.join("<break time='500ms' />");
+    return `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'>` +
+           `<voice name='${ttsVoice}'>` +
+           `<mstts:leadingsilence-exact value='0'/>` +
+           `<mstts:express-as style='chat'>` +
+           `<prosody rate='+5%' pitch='+2st'>${body}</prosody>` +
+           `</mstts:express-as>` +
+           `</voice></speak>`;
+}
+
 window.speakLesson = async (content) => {
     try {
         if (!avatarSynthesizer) {
@@ -278,15 +339,11 @@ window.speakLesson = async (content) => {
             return;
         }
         
-    // Always interrupt any ongoing speech before starting a new one
-    try { await avatarSynthesizer.stopSpeakingAsync(); } catch {}
-        
-        // Update spokenText for subtitle compatibility
-        const spokenEl = document.getElementById('spokenText');
-        if (spokenEl) spokenEl.value = content;
+        // Always interrupt any ongoing speech before starting a new one
+        try { await avatarSynthesizer.stopSpeakingAsync(); } catch {}
         
         const ttsVoice = document.getElementById('ttsVoice').value;
-        const spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(content)}</voice></speak>`;
+        const spokenSsml = buildSsml(content, ttsVoice);
         
         document.getElementById('audio').muted = false;
         document.getElementById('stopSpeaking').disabled = false;
@@ -301,8 +358,16 @@ window.speakLesson = async (content) => {
 // Move to next lesson
 window.nextLesson = async () => {
     try {
+        if (isAdvancing) return;
+        isAdvancing = true;
+        const nextBtn = document.getElementById('nextLesson');
+        if (nextBtn) nextBtn.disabled = true;
+
         // Ensure we stop any current speech BEFORE moving to the next lesson
         try { if (avatarSynthesizer) await avatarSynthesizer.stopSpeakingAsync(); } catch {}
+
+        // Before advancing topic/subtask, answer any pending for current topic
+        await window.answerPendingForCurrentTopic();
 
         const resp = await fetch('/api/teaching/next', { method: 'POST' });
         if (!resp.ok) throw new Error('Failed to move to next');
@@ -318,6 +383,11 @@ window.nextLesson = async () => {
         }
     } catch (err) {
         log('Erro ao avançar lição: ' + err.message);
+    }
+    finally {
+        isAdvancing = false;
+        const nextBtn = document.getElementById('nextLesson');
+        if (nextBtn) nextBtn.disabled = false;
     }
 };
 
@@ -553,10 +623,6 @@ window.askAI = async () => {
         // Add AI response to chat history
         window.addToChatHistory(aiText, false);
 
-        // Mirror into spokenText for subtitles behavior
-        const spokenEl = document.getElementById('spokenText')
-        if (spokenEl) spokenEl.value = aiText
-        
     // Speak the AI response via avatar using SSML
     await window.speakLesson(aiText)
     } catch (err) {

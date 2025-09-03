@@ -325,12 +325,21 @@ Forneça uma resposta educativa, clara e direta em português, máximo 2 parágr
 // Answer pending questions at end of session
 app.post('/api/teaching/answer-pending', async (req, res) => {
   try {
+    const scope = (req.query?.scope || '').toString();
     if (!teachingState.pendingQuestions || teachingState.pendingQuestions.length === 0) {
       return res.json({ success: true, message: 'Nenhuma pergunta pendente.', answers: [] })
     }
 
+    // Optionally filter by current topic
+    let pending = teachingState.pendingQuestions
+    if (scope === 'currentTopic') {
+      const topic = courseContent[teachingState.currentTopicIndex]?.title
+      pending = pending.filter(q => q.topic === topic)
+      // Remove only the ones answered from the global queue later
+    }
+
     const answers = []
-    for (const pendingQ of teachingState.pendingQuestions) {
+    for (const pendingQ of pending) {
       const answerPrompt = `Como instrutor especialista em Machine Learning, responda de forma detalhada e educativa a seguinte pergunta importante de um aluno:
 
 Pergunta: ${pendingQ.question}
@@ -348,8 +357,13 @@ Forneça uma resposta completa, didática e bem estruturada em português. Use e
       })
     }
 
-    // Clear pending questions
-    teachingState.pendingQuestions = []
+    // Clear pending questions (all or only answered ones if scoped)
+    if (scope === 'currentTopic') {
+      const topic = courseContent[teachingState.currentTopicIndex]?.title
+      teachingState.pendingQuestions = teachingState.pendingQuestions.filter(q => q.topic !== topic)
+    } else {
+      teachingState.pendingQuestions = []
+    }
 
     res.json({
       success: true,
