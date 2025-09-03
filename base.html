@@ -69,8 +69,9 @@
 <h2 style="background-color: white; width: 300px;">Avatar Control Panel</h2>
 <label style="font-size: medium;" for="spokenText">Spoken Text:</label><br/>
 <textarea id="spokenText" style="height:40px">Hello world!</textarea><br/>
-<button id="startSession" onclick="window.startSession()">Start Session</button>
-<button id="speak" onclick="window.speak()" disabled="disabled">Speak</button>
+<label style="font-size: medium;" for="userPrompt">Mensagem para a IA/Avatar:</label><br/>
+<input id="userPrompt" type="text" style="width: 800px; font-size: medium;" placeholder="Digite sua mensagem e clique em Enviar ou pressione Enter" />
+<button id="askAI" onclick="window.askAI()" disabled="disabled">Enviar</button>
 <button id="stopSpeaking" onclick="window.stopSpeaking()" disabled="disabled">Stop Speaking</button>
 <button id="stopSession" onclick="window.stopSession()" disabled="disabled">Stop Session</button>
 <br/>
