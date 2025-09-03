@@ -189,6 +189,8 @@ window.showPendingQuestions = async () => {
         const data = await resp.json();
         if (data.success && data.answers && data.answers.length > 0) {
             log(`📋 Respondendo ${data.answers.length} perguntas importantes:`);
+            // Preface before answering queued questions
+            await window.speakLesson('Então, respondendo ao chat:');
             
             for (const qa of data.answers) {
                 // Add to teaching chat
@@ -276,6 +278,9 @@ window.speakLesson = async (content) => {
             return;
         }
         
+    // Always interrupt any ongoing speech before starting a new one
+    try { await avatarSynthesizer.stopSpeakingAsync(); } catch {}
+        
         // Update spokenText for subtitle compatibility
         const spokenEl = document.getElementById('spokenText');
         if (spokenEl) spokenEl.value = content;
@@ -296,6 +301,9 @@ window.speakLesson = async (content) => {
 // Move to next lesson
 window.nextLesson = async () => {
     try {
+        // Ensure we stop any current speech BEFORE moving to the next lesson
+        try { if (avatarSynthesizer) await avatarSynthesizer.stopSpeakingAsync(); } catch {}
+
         const resp = await fetch('/api/teaching/next', { method: 'POST' });
         if (!resp.ok) throw new Error('Failed to move to next');
         
@@ -319,21 +327,21 @@ window.askTeachingQuestion = async () => {
         const input = document.getElementById('teachingPrompt');
         const message = (input.value || '').trim();
         if (!message) return;
-        
+
         // Add question to teaching chat history
         window.addToTeachingChatHistory(message, true);
         input.value = '';
-        
+
         document.getElementById('askTeachingQuestion').disabled = true;
-        
+
         const resp = await fetch('/api/teaching/question', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message })
         });
-        
+
         if (!resp.ok) throw new Error('Failed to process question');
-        
+
         const data = await resp.json();
         if (data.success) {
             if (data.type === 'immediate') {
@@ -345,7 +353,6 @@ window.askTeachingQuestion = async () => {
                 window.addToTeachingChatHistory('ℹ️ ' + data.message, false);
             }
         }
-        
     } catch (err) {
         log('Erro ao processar pergunta: ' + err.message);
         window.addToTeachingChatHistory('❌ Erro ao processar pergunta', false);
@@ -549,11 +556,9 @@ window.askAI = async () => {
         // Mirror into spokenText for subtitles behavior
         const spokenEl = document.getElementById('spokenText')
         if (spokenEl) spokenEl.value = aiText
-
-        const ttsVoice = document.getElementById('ttsVoice').value
-        const spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(aiText)}</voice></speak>`
-        document.getElementById('audio').muted = false
-        await avatarSynthesizer.speakSsmlAsync(spokenSsml)
+        
+    // Speak the AI response via avatar using SSML
+    await window.speakLesson(aiText)
     } catch (err) {
         log('AI error: ' + (err?.message || String(err)))
         window.addToChatHistory('❌ Erro: ' + (err?.message || 'Falha na comunicação'), false);
@@ -720,8 +725,6 @@ window.speak = () => {
             }
         }).catch(log);
 }
-
-
 window.stopSpeaking = () => {
     document.getElementById('stopSpeaking').disabled = true
 
