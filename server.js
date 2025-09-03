@@ -59,10 +59,13 @@ app.post('/api/generate', async (req, res) => {
 // LangGraph: simple stateful chat graph
 const graphModel = new ChatOpenAI({ model: 'gpt-5-nano', temperature: 0.6, maxTokens: 256 })
 
-// Define a minimal state: messages array
+// Define a minimal state: messages array (use reducer/default per docs)
 const graph = new StateGraph({
   channels: {
-    messages: { value: (x, y) => [...(x || []), ...(y || [])], default: [] },
+    messages: {
+      reducer: (currentState, updateValue) => (currentState || []).concat(updateValue || []),
+      default: () => [],
+    },
   },
 })
   .addNode('llm', async (state) => {
