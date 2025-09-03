@@ -148,8 +148,9 @@
         <h3>🎓 Modo Ensino</h3>
         <div class="teaching-controls">
           <button id="startTeaching" onclick="window.startTeaching()" class="btn btn-success">▶️ Iniciar Curso</button>
-          <button id="nextLesson" onclick="window.nextLesson()" disabled class="btn btn-primary">⏭️ Próximo</button>
-          <button id="stopTeaching" onclick="window.stopTeaching()" disabled class="btn btn-danger">⏹️ Parar</button>
+          <button id="pauseTeaching" onclick="window.pauseTeaching()" disabled class="btn btn-warning">⏸️ Pausar</button>
+          <button id="nextLesson" onclick="window.nextLesson()" disabled class="btn btn-primary">⏭️ Próximo Tópico</button>
+          <button id="stopTeaching" onclick="window.stopTeaching()" disabled class="btn btn-danger">⏹️ Finalizar</button>
         </div>
       </div>
       
@@ -168,10 +169,7 @@
       <div class="teaching-chat" id="teachingChat" style="display: none;">
         <div class="chat-header">
           <h4>❓ Perguntas durante a aula</h4>
-          <label class="question-mode">
-            <input type="checkbox" id="immediateAnswer" checked>
-            <span>Responder imediatamente</span>
-          </label>
+          <span class="question-info">🤖 IA decide automaticamente quando responder</span>
         </div>
         <div id="teachingChatHistory" class="chat-history"></div>
         <div class="chat-input-section">

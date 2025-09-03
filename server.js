@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url'
 import { ChatOpenAI } from '@langchain/openai'
 import { StateGraph, START, END } from '@langchain/langgraph'
 import dotenv from 'dotenv'
-import fs from 'fs'
+import { readFileSync } from 'fs'
 
 // Load environment variables
 dotenv.config()
@@ -26,7 +26,7 @@ app.use(express.static(path.join(__dirname)))
 // Load course content - moved to global scope
 var courseContent = []
 try {
-  const courseData = fs.readFileSync(path.join(__dirname, 'course.json'), 'utf8')
+  const courseData = readFileSync(path.join(__dirname, 'course.json'), 'utf8')
   courseContent = JSON.parse(courseData)
   console.log(`Loaded ${courseContent.length} course topics`)
 } catch (err) {
@@ -124,8 +124,11 @@ app.post('/api/chat', async (req, res) => {
 
 // Get course structure
 app.get('/api/course', (req, res) => {
-  console.log('Course request - courseContent length:', courseContent?.length || 0)
-  res.json(courseContent || [])
+  if (!courseContent || courseContent.length === 0) {
+    return res.status(500).json({ error: 'Course content not available' })
+  }
+  console.log('Course request - courseContent length:', courseContent.length)
+  res.json(courseContent)
 })
 
 // Get current teaching state
@@ -160,19 +163,22 @@ app.post('/api/teaching/lesson', async (req, res) => {
     }
 
     if (!courseContent || courseContent.length === 0) {
-      return res.status(400).json({ error: 'Course content not loaded' })
+      return res.status(500).json({ error: 'Course content not loaded' })
     }
 
     const currentTopic = courseContent[teachingState.currentTopicIndex]
-    const currentSubtask = currentTopic?.subtasks[teachingState.currentSubtaskIndex]
+    if (!currentTopic) {
+      return res.status(400).json({ error: 'Invalid topic index' })
+    }
+
+    const currentSubtask = currentTopic.subtasks[teachingState.currentSubtaskIndex]
+    if (!currentSubtask) {
+      return res.status(400).json({ error: 'Invalid subtask index' })
+    }
     
     console.log('Current topic index:', teachingState.currentTopicIndex)
-    console.log('Current topic:', currentTopic?.title)
-    console.log('Current subtask:', currentSubtask?.title)
-    
-    if (!currentTopic || !currentSubtask) {
-      return res.status(400).json({ error: 'No more content available' })
-    }
+    console.log('Current topic:', currentTopic.title)
+    console.log('Current subtask:', currentSubtask.title)
 
     const prompt = `Como instrutor especialista em Machine Learning e IA, explique de forma didática o tópico "${currentSubtask.title}" dentro do contexto de "${currentTopic.title}". 
 
@@ -209,7 +215,14 @@ app.post('/api/teaching/next', (req, res) => {
     return res.status(400).json({ error: 'Teaching session not active' })
   }
 
+  if (!courseContent || courseContent.length === 0) {
+    return res.status(500).json({ error: 'Course content not available' })
+  }
+
   const currentTopic = courseContent[teachingState.currentTopicIndex]
+  if (!currentTopic) {
+    return res.status(400).json({ error: 'Invalid current topic' })
+  }
   
   if (teachingState.currentSubtaskIndex < currentTopic.subtasks.length - 1) {
     // Next subtask in current topic
@@ -230,47 +243,122 @@ app.post('/api/teaching/next', (req, res) => {
 // Handle questions during teaching
 app.post('/api/teaching/question', async (req, res) => {
   try {
-    const { message, immediate = false } = req.body || {}
+    const { message } = req.body || {}
     
     if (!message || typeof message !== 'string') {
-      return res.status(400).send('message is required')
+      return res.status(400).json({ error: 'message is required' })
     }
 
-    if (immediate) {
-      // Answer immediately using course context
-      const currentTopic = courseContent[teachingState.currentTopicIndex]
-      const contextPrompt = `Como instrutor especialista, responda a seguinte pergunta do aluno sobre o tópico "${currentTopic?.title || 'Machine Learning'}":
+    if (!teachingState.isTeaching) {
+      return res.status(400).json({ error: 'Teaching session not active' })
+    }
+
+    // AI Judge to decide what to do with the question
+    const currentTopic = courseContent[teachingState.currentTopicIndex]
+    const judgePrompt = `Como um assistente especializado, analise esta pergunta de um aluno durante uma aula sobre "${currentTopic.title}":
+
+Pergunta: "${message}"
+
+Contexto da aula: ${currentTopic.description}
+
+Classifique a pergunta em uma destas categorias:
+- ANSWER_NOW: Pergunta relevante e simples que deve ser respondida imediatamente
+- QUEUE_IMPORTANT: Pergunta muito importante/complexa que deve ser guardada para o final da sessão
+- IGNORE: Pergunta irrelevante, fora de contexto ou inadequada
+
+Responda APENAS com uma das três palavras: ANSWER_NOW, QUEUE_IMPORTANT, ou IGNORE`
+
+    const judgeResponse = await teachingLLM.invoke([{ role: 'user', content: judgePrompt }])
+    const decision = judgeResponse.content.trim().toUpperCase()
+
+    console.log(`Question decision: ${decision} for "${message}"`)
+
+    if (decision === 'IGNORE') {
+      return res.json({
+        success: true,
+        message: '🤖 Essa pergunta não está relacionada ao conteúdo atual.',
+        type: 'ignored'
+      })
+    }
+    
+    if (decision === 'ANSWER_NOW') {
+      const contextPrompt = `Como instrutor especialista, responda de forma concisa a seguinte pergunta do aluno sobre o tópico "${currentTopic.title}":
 
 Pergunta: ${message}
 
-Contexto do curso: ${currentTopic?.description || 'Curso de Machine Learning e IA'}
+Contexto do curso: ${currentTopic.description}
 
-Forneça uma resposta educativa, clara e direta em português.`
+Forneça uma resposta educativa, clara e direta em português, máximo 2 parágrafos.`
 
       const response = await teachingLLM.invoke([{ role: 'user', content: contextPrompt }])
       
-      res.json({
+      return res.json({
         success: true,
         answer: response.content,
         type: 'immediate'
       })
-    } else {
-      // Queue for later
+    }
+    
+    if (decision === 'QUEUE_IMPORTANT') {
       teachingState.pendingQuestions.push({
         question: message,
         timestamp: new Date().toISOString(),
-        topic: courseContent[teachingState.currentTopicIndex]?.title || 'Unknown'
+        topic: currentTopic.title
       })
       
-      res.json({
+      return res.json({
         success: true,
-        message: 'Pergunta adicionada à fila. Será respondida no final da sessão.',
+        message: '📋 Excelente pergunta! Será respondida com detalhes no final da sessão.',
         type: 'queued'
       })
     }
+
+    // If judge returned unexpected decision, throw error
+    throw new Error(`Invalid judge decision: ${decision}`)
+
   } catch (err) {
     console.error('Teaching question error:', err)
-    res.status(500).json({ error: 'Failed to process question' })
+    res.status(500).json({ error: 'Failed to process question: ' + err.message })
+  }
+})
+
+// Answer pending questions at end of session
+app.post('/api/teaching/answer-pending', async (req, res) => {
+  try {
+    if (!teachingState.pendingQuestions || teachingState.pendingQuestions.length === 0) {
+      return res.json({ success: true, message: 'Nenhuma pergunta pendente.', answers: [] })
+    }
+
+    const answers = []
+    for (const pendingQ of teachingState.pendingQuestions) {
+      const answerPrompt = `Como instrutor especialista em Machine Learning, responda de forma detalhada e educativa a seguinte pergunta importante de um aluno:
+
+Pergunta: ${pendingQ.question}
+Tópico da aula: ${pendingQ.topic}
+Data: ${pendingQ.timestamp}
+
+Forneça uma resposta completa, didática e bem estruturada em português. Use exemplos práticos quando apropriado.`
+
+      const response = await teachingLLM.invoke([{ role: 'user', content: answerPrompt }])
+      answers.push({
+        question: pendingQ.question,
+        answer: response.content,
+        topic: pendingQ.topic,
+        timestamp: pendingQ.timestamp
+      })
+    }
+
+    // Clear pending questions
+    teachingState.pendingQuestions = []
+
+    res.json({
+      success: true,
+      message: `Respondidas ${answers.length} perguntas pendentes.`,
+      answers
+    })
+  } catch (err) {
+    console.error('Answer pending questions error:', err)
+    res.status(500).json({ error: 'Failed to answer pending questions: ' + err.message })
   }
 })
 

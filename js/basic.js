@@ -121,6 +121,7 @@ window.startTeaching = async () => {
         
         // Update UI
         document.getElementById('startTeaching').disabled = true;
+        document.getElementById('pauseTeaching').disabled = false;
         document.getElementById('nextLesson').disabled = false;
         document.getElementById('stopTeaching').disabled = false;
         document.getElementById('askTeachingQuestion').disabled = false;
@@ -139,6 +140,9 @@ window.startTeaching = async () => {
 // Stop teaching session
 window.stopTeaching = async () => {
     try {
+        // Show pending questions before stopping
+        await window.showPendingQuestions();
+        
         const resp = await fetch('/api/teaching/stop', { method: 'POST' });
         if (!resp.ok) throw new Error('Failed to stop teaching');
         
@@ -146,6 +150,7 @@ window.stopTeaching = async () => {
         
         // Update UI
         document.getElementById('startTeaching').disabled = false;
+        document.getElementById('pauseTeaching').disabled = true;
         document.getElementById('nextLesson').disabled = true;
         document.getElementById('stopTeaching').disabled = true;
         document.getElementById('askTeachingQuestion').disabled = true;
@@ -156,6 +161,57 @@ window.stopTeaching = async () => {
         log('🛑 Sessão de ensino finalizada!');
     } catch (err) {
         log('Erro ao parar ensino: ' + err.message);
+    }
+};
+
+// Pause teaching (stop avatar speaking)
+window.pauseTeaching = () => {
+    try {
+        if (avatarSynthesizer) {
+            avatarSynthesizer.stopSpeakingAsync();
+            log('⏸️ Avatar pausado');
+        }
+        document.getElementById('pauseTeaching').disabled = true;
+        setTimeout(() => {
+            document.getElementById('pauseTeaching').disabled = false;
+        }, 2000);
+    } catch (err) {
+        log('Erro ao pausar: ' + err.message);
+    }
+};
+
+// Show pending questions at end of session
+window.showPendingQuestions = async () => {
+    try {
+        const resp = await fetch('/api/teaching/answer-pending', { method: 'POST' });
+        if (!resp.ok) throw new Error('Failed to get pending answers');
+        
+        const data = await resp.json();
+        if (data.success && data.answers && data.answers.length > 0) {
+            log(`📋 Respondendo ${data.answers.length} perguntas importantes:`);
+            
+            for (const qa of data.answers) {
+                // Add to teaching chat
+                window.addToTeachingChatHistory(
+                    `📌 Pergunta: ${qa.question}`, true
+                );
+                window.addToTeachingChatHistory(
+                    `🎓 Resposta detalhada: ${qa.answer}`, false
+                );
+                
+                // Make avatar speak the answer
+                await window.speakLesson(qa.answer);
+                
+                // Small pause between answers
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            
+            log('✅ Todas as perguntas pendentes foram respondidas!');
+        } else {
+            log('ℹ️ Nenhuma pergunta pendente para responder.');
+        }
+    } catch (err) {
+        log('Erro ao responder perguntas pendentes: ' + err.message);
     }
 };
 
@@ -264,8 +320,6 @@ window.askTeachingQuestion = async () => {
         const message = (input.value || '').trim();
         if (!message) return;
         
-        const immediate = document.getElementById('immediateAnswer').checked;
-        
         // Add question to teaching chat history
         window.addToTeachingChatHistory(message, true);
         input.value = '';
@@ -275,7 +329,7 @@ window.askTeachingQuestion = async () => {
         const resp = await fetch('/api/teaching/question', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, immediate })
+            body: JSON.stringify({ message })
         });
         
         if (!resp.ok) throw new Error('Failed to process question');
@@ -284,11 +338,11 @@ window.askTeachingQuestion = async () => {
         if (data.success) {
             if (data.type === 'immediate') {
                 // Add answer to chat and speak it
-                window.addToTeachingChatHistory(data.answer, false);
+                window.addToTeachingChatHistory('🤖 ' + data.answer, false);
                 await window.speakLesson(data.answer);
             } else {
-                // Queued response
-                window.addToTeachingChatHistory('✅ ' + data.message, false);
+                // Show system message (ignored or queued)
+                window.addToTeachingChatHistory('ℹ️ ' + data.message, false);
             }
         }
         
