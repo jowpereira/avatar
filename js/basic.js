@@ -4,7 +4,7 @@
 // Global objects
 var avatarSynthesizer
 var peerConnection
-var useTcpForWebRTC = false
+var k = false
 var previousAnimationFrameTimestamp = 0;
 var chatHistory = [];
 var isAdvancing = false;
@@ -333,16 +333,16 @@ function stripMarkdown(md) {
 function ssmlOptionsFor(kind) {
     switch ((kind || '').toLowerCase()) {
         case 'lesson':
-            return { style: 'chat', styledegree: '1.2', rate: '+5%', pitch: '+2st' };
+            return { style: 'general', styledegree: '1.0', rate: '-5%', pitch: '+0st' };
         case 'answer':
-            return { style: 'chat', styledegree: '1.1', rate: '+2%', pitch: '+1st' };
+            return { style: 'general', styledegree: '1.0', rate: '-2%', pitch: '+0st' };
         case 'queuedanswer':
-            return { style: 'chat', styledegree: '1.0', rate: '+0%', pitch: '+0st' };
+            return { style: 'general', styledegree: '1.0', rate: '-2%', pitch: '+0st' };
         case 'preface':
-            return { style: 'calm', styledegree: '1.0', rate: '+0%', pitch: '+0st' };
+            return { style: 'general', styledegree: '1.0', rate: '-5%', pitch: '+0st' };
         case 'chat':
         default:
-            return { style: 'chat', styledegree: '1.2', rate: '+5%', pitch: '+1st' };
+            return { style: 'general', styledegree: '1.0', rate: '+0%', pitch: '+0st' };
     }
 }
 
@@ -377,12 +377,12 @@ function buildSsml(content, ttsVoice, opts = {}) {
         if (parts.length >= 2) lang = `${parts[0]}-${parts[1]}`;
     }
 
-    const style = opts.style || 'chat';
-    const styledegree = opts.styledegree || '1.2';
-    const rate = opts.rate || '+5%';
-    const pitch = opts.pitch || '+2st';
-    const sentenceBoundaryMs = opts.sentenceBoundaryMs || '40ms';
-    const paragraphBreakMs = opts.paragraphBreakMs || '700ms';
+    const style = opts.style || 'general';
+    const styledegree = opts.styledegree || '1.0';
+    const rate = opts.rate || '+0%';
+    const pitch = opts.pitch || '+0st';
+    const sentenceBoundaryMs = opts.sentenceBoundaryMs || '80ms';
+    const paragraphBreakMs = opts.paragraphBreakMs || '900ms';
 
     // Build p/s structure and add small pauses between paragraphs
     const splitIntoSentences = (text) => {
@@ -744,8 +744,7 @@ window.askAI = async () => {
         // Add AI response to chat history
         window.addToChatHistory(aiText, false);
 
-    // Speak the AI response via avatar using SSML
-    await window.speakLesson(aiText, ssmlOptionsFor('chat'), 'chat')
+    // No TTS for chat responses anymore; only display in chat
     } catch (err) {
         log('AI error: ' + (err?.message || String(err)))
         window.addToChatHistory('❌ Erro: ' + (err?.message || 'Falha na comunicação'), false);
