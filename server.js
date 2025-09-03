@@ -10,6 +10,7 @@ import { ChatOpenAI } from '@langchain/openai'
 import { StateGraph, START, END } from '@langchain/langgraph'
 import dotenv from 'dotenv'
 import { readFileSync } from 'fs'
+import crypto from 'crypto'
 
 // Load environment variables
 dotenv.config()
@@ -294,6 +295,89 @@ Forneça uma resposta completa, didática e bem estruturada em português. Use e
   } catch (err) {
     console.error('Answer pending questions error:', err)
     res.status(500).json({ error: 'Failed to answer pending questions: ' + err.message })
+  }
+})
+
+// ============ Avatar Batch Synthesis (Gestures) ============
+// Submit a batch job with SSML; returns operation location to poll
+app.post('/api/avatar/batch', async (req, res) => {
+  try {
+    const SPEECH_KEY = process.env.SPEECH_KEY || process.env.AZURE_SPEECH_KEY || process.env.COG_SPEECH_KEY
+    const region = (req.body?.region || process.env.SPEECH_REGION || '').toString()
+    if (!SPEECH_KEY) return res.status(500).json({ error: 'Server missing SPEECH_KEY' })
+    if (!region) return res.status(400).json({ error: 'region is required (e.g., eastus)' })
+
+    const ssml = (req.body?.ssml || '').toString()
+    const character = (req.body?.character || 'lisa').toString()
+    const style = (req.body?.style || 'casual-sitting').toString()
+    const backgroundColor = (req.body?.backgroundColor || 'white').toString()
+    const videoFormat = (req.body?.videoFormat || 'mp4').toString()
+    const videoCodec = (req.body?.videoCodec || 'h264').toString()
+    const subtitleType = (req.body?.subtitleType || 'soft_embedded').toString()
+    const jobId = (req.body?.jobId || ('talking-avatar-batch-' + crypto.randomBytes(4).toString('hex'))).toString()
+
+    if (!ssml) return res.status(400).json({ error: 'ssml is required' })
+
+    const url = `https://${region}.api.cognitive.microsoft.com/avatar/batchsyntheses/${encodeURIComponent(jobId)}?api-version=2024-08-01`
+    const payload = {
+      inputKind: 'SSML',
+      inputs: [{ content: ssml }],
+      avatarConfig: {
+        talkingAvatarCharacter: character,
+        talkingAvatarStyle: style,
+        videoFormat,
+        videoCodec,
+        subtitleType,
+        backgroundColor
+      }
+    }
+
+    const resp = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Ocp-Apim-Subscription-Key': SPEECH_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '')
+      return res.status(resp.status).json({ error: 'Azure batch submit failed', details: t })
+    }
+    const opLoc = resp.headers.get('Operation-Location')
+    const opId = resp.headers.get('Operation-Id')
+    const body = await resp.json().catch(() => ({}))
+    res.status(201).json({ success: true, operationLocation: opLoc, operationId: opId, job: body, jobId })
+  } catch (err) {
+    console.error('Batch submit error:', err)
+    res.status(500).json({ error: 'Batch submit error', details: err?.message })
+  }
+})
+
+// Poll batch operation by Operation-Location URL
+app.get('/api/avatar/batch-status', async (req, res) => {
+  try {
+    const SPEECH_KEY = process.env.SPEECH_KEY || process.env.AZURE_SPEECH_KEY || process.env.COG_SPEECH_KEY
+    const opLoc = (req.query?.operationLocation || '').toString()
+    if (!SPEECH_KEY) return res.status(500).json({ error: 'Server missing SPEECH_KEY' })
+    if (!opLoc) return res.status(400).json({ error: 'operationLocation is required' })
+
+    const resp = await fetch(opLoc, {
+      method: 'GET',
+      headers: { 'Ocp-Apim-Subscription-Key': SPEECH_KEY }
+    })
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '')
+      return res.status(resp.status).json({ error: 'Azure status failed', details: t })
+    }
+    const data = await resp.json()
+    // If succeeded, try to extract result URL
+    let resultUrl = data?.outputs?.result || null
+    res.json({ success: true, status: data?.status, data, resultUrl })
+  } catch (err) {
+    console.error('Batch status error:', err)
+    res.status(500).json({ error: 'Batch status error', details: err?.message })
   }
 })
 

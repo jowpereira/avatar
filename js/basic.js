@@ -948,6 +948,68 @@ window.copyLastSsmlToClipboard = async () => {
         log('❌ Falha ao copiar SSML: ' + (e?.message || e));
     }
 }
+
+// ============ Batch Clip Generation (Gestures) ============
+window.generateBatchClip = async () => {
+    try {
+        if (!lastSpokenSsml) {
+            log('ℹ️ Fale algo primeiro ou inicie uma lição para gerar SSML.');
+            return;
+        }
+        const region = document.getElementById('region')?.value || '';
+        const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
+        const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
+        const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+        const videoFormat = 'mp4';
+        const videoCodec = 'h264';
+        const subtitleType = 'soft_embedded';
+        const body = { region, ssml: lastSpokenSsml, character, style, backgroundColor, videoFormat, videoCodec, subtitleType };
+
+        log('🎬 Enviando job de síntese em lote (gestos)...');
+        const submitResp = await fetch('/api/avatar/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!submitResp.ok) {
+            const t = await submitResp.text();
+            throw new Error('Falha ao enviar job: ' + t);
+        }
+        const submitData = await submitResp.json();
+        const opLoc = submitData.operationLocation;
+        if (!opLoc) throw new Error('Operation-Location ausente');
+
+        log('⏳ Processando vídeo com gestos...');
+        let status = 'NotStarted';
+        let resultUrl = null;
+        const deadline = Date.now() + 5 * 60 * 1000; // 5 min timeout
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 3000));
+            const s = await fetch(`/api/avatar/batch-status?operationLocation=${encodeURIComponent(opLoc)}`);
+            if (!s.ok) {
+                const tt = await s.text();
+                throw new Error('Falha ao consultar status: ' + tt);
+            }
+            const sd = await s.json();
+            status = sd.status;
+            resultUrl = sd.resultUrl;
+            if (status === 'Succeeded' && resultUrl) break;
+            if (status === 'Failed') throw new Error('Job de batch falhou');
+        }
+        if (!resultUrl) throw new Error('Tempo esgotado sem resultado');
+
+        log('✅ Vídeo com gestos pronto. Reproduzindo...');
+        const liveDiv = document.getElementById('remoteVideo');
+        const batchVideo = document.getElementById('batchVideo');
+        if (batchVideo) {
+            batchVideo.src = resultUrl;
+            batchVideo.hidden = false;
+            try { batchVideo.play(); } catch {}
+        }
+        if (liveDiv) {
+            // Opcional: ocultar live enquanto toca o batch
+            // liveDiv.style.display = 'none';
+        }
+    } catch (e) {
+        log('❌ Erro no batch: ' + (e?.message || e));
+    }
+}
 window.stopSpeaking = () => {
     document.getElementById('stopSpeaking').disabled = true
 

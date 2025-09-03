@@ -108,6 +108,7 @@
       <button id="speak" onclick="window.speak()" disabled class="btn btn-secondary">🗣️ Speak</button>
       <button id="stopSpeaking" onclick="window.stopSpeaking()" disabled class="btn btn-warning">⏹️ Stop Speaking</button>
   <button id="copySSML" onclick="window.copyLastSsmlToClipboard()" class="btn btn-small">📋 Copiar SSML</button>
+  <button id="generateBatch" onclick="window.generateBatchClip()" class="btn btn-secondary">🎬 Gerar clipe com gestos</button>
       <button id="stopSession" onclick="window.stopSession()" disabled class="btn btn-danger">🛑 Stop Session</button>
     </div>
   </div>
@@ -122,6 +123,7 @@
           <p id="overlayText">Live Video</p>
         </div>
         <div id="remoteVideo"></div>
+  <video id="batchVideo" class="batch-video" controls hidden></video>
         <div id="subtitles" class="subtitles" hidden></div>
         <canvas id="canvas" class="video-canvas" hidden></canvas>
         <canvas id="tmpCanvas" class="video-canvas" hidden></canvas>
