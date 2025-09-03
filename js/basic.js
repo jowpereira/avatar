@@ -138,9 +138,7 @@ window.startTeaching = async () => {
         document.getElementById('pauseTeaching').disabled = false;
         document.getElementById('nextLesson').disabled = false;
         document.getElementById('stopTeaching').disabled = false;
-        document.getElementById('askTeachingQuestion').disabled = false;
-        document.getElementById('lessonProgress').style.display = 'block';
-        document.getElementById('teachingChat').style.display = 'block';
+    document.getElementById('lessonProgress').style.display = 'block';
         
         // Load first lesson
         await window.loadCurrentLesson();
@@ -167,10 +165,9 @@ window.stopTeaching = async () => {
         document.getElementById('pauseTeaching').disabled = true;
         document.getElementById('nextLesson').disabled = true;
         document.getElementById('stopTeaching').disabled = true;
-        document.getElementById('askTeachingQuestion').disabled = true;
         document.getElementById('lessonProgress').style.display = 'none';
         document.getElementById('lessonContent').style.display = 'none';
-        document.getElementById('teachingChat').style.display = 'none';
+        
         
         log('🛑 Sessão de ensino finalizada!');
     } catch (err) {
@@ -207,18 +204,7 @@ window.showPendingQuestions = async () => {
             await window.speakLesson('Então, respondendo ao chat:', ssmlOptionsFor('preface'), 'preface');
             
             for (const qa of data.answers) {
-                // Add to teaching chat
-                window.addToTeachingChatHistory(
-                    `📌 Pergunta: ${qa.question}`, true
-                );
-                window.addToTeachingChatHistory(
-                    `🎓 Resposta detalhada: ${qa.answer}`, false
-                );
-                
-                // Make avatar speak the answer
                 await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'), 'queuedAnswer');
-                
-                // Small pause between answers
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
             
@@ -240,8 +226,6 @@ window.answerPendingForCurrentTopic = async () => {
         if (data.success && data.answers && data.answers.length > 0) {
             await window.speakLesson('Antes de avançarmos, respondendo as perguntas deste tópico:', ssmlOptionsFor('preface'), 'preface');
             for (const qa of data.answers) {
-                window.addToTeachingChatHistory(`📌 Pergunta: ${qa.question}`, true);
-                window.addToTeachingChatHistory(`🎓 Resposta: ${qa.answer}`, false);
                 await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'), 'queuedAnswer');
                 await new Promise(r => setTimeout(r, 600));
             }
@@ -484,64 +468,7 @@ window.nextLesson = async () => {
     }
 };
 
-// Ask question during teaching
-window.askTeachingQuestion = async () => {
-    try {
-        const input = document.getElementById('teachingPrompt');
-        const message = (input.value || '').trim();
-        if (!message) return;
-
-        // Add question to teaching chat history
-        window.addToTeachingChatHistory(message, true);
-        input.value = '';
-
-        document.getElementById('askTeachingQuestion').disabled = true;
-
-        const resp = await fetch('/api/teaching/question', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
-        });
-
-        if (!resp.ok) throw new Error('Failed to process question');
-
-        const data = await resp.json();
-        if (data.success) {
-            if (data.type === 'immediate') {
-                // Add answer to chat and speak it
-                window.addToTeachingChatHistory('🤖 ' + data.answer, false);
-                // Mark that we should resume lesson after answering
-                resumeLessonAfterAnswer = true;
-                await window.speakLesson(data.answer, ssmlOptionsFor('answer'), 'answer');
-            } else {
-                // Show system message (ignored or queued)
-                window.addToTeachingChatHistory('ℹ️ ' + data.message, false);
-            }
-        }
-    } catch (err) {
-        log('Erro ao processar pergunta: ' + err.message);
-        window.addToTeachingChatHistory('❌ Erro ao processar pergunta', false);
-    } finally {
-        document.getElementById('askTeachingQuestion').disabled = false;
-    }
-};
-
-// Add message to teaching chat history
-window.addToTeachingChatHistory = (message, isUser = false) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const chatHistoryElement = document.getElementById('teachingChatHistory');
-    
-    if (chatHistoryElement) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `chat-message ${isUser ? 'user' : 'assistant'}`;
-        messageDiv.innerHTML = `
-            <div class="message-content">${message}</div>
-            <div class="message-time">${timestamp}</div>
-        `;
-        chatHistoryElement.appendChild(messageDiv);
-        chatHistoryElement.scrollTop = chatHistoryElement.scrollHeight;
-    }
-};
+// Teaching chat is disabled; no question input or history.
 
 // Setup WebRTC
 function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
