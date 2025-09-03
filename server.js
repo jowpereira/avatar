@@ -23,13 +23,14 @@ const PORT = process.env.PORT || 3000
 app.use(bodyParser.json())
 app.use(express.static(path.join(__dirname)))
 
-// Load course content
-let courseContent = []
+// Load course content - moved to global scope
+var courseContent = []
 try {
   const courseData = fs.readFileSync(path.join(__dirname, 'course.json'), 'utf8')
   courseContent = JSON.parse(courseData)
+  console.log(`Loaded ${courseContent.length} course topics`)
 } catch (err) {
-  console.warn('Course content not found, using empty array')
+  console.warn('Course content not found, using empty array:', err.message)
 }
 
 const llm = new ChatOpenAI({
@@ -123,7 +124,8 @@ app.post('/api/chat', async (req, res) => {
 
 // Get course structure
 app.get('/api/course', (req, res) => {
-  res.json(courseContent)
+  console.log('Course request - courseContent length:', courseContent?.length || 0)
+  res.json(courseContent || [])
 })
 
 // Get current teaching state
@@ -149,12 +151,24 @@ app.post('/api/teaching/stop', (req, res) => {
 // Generate lesson content for current subtask
 app.post('/api/teaching/lesson', async (req, res) => {
   try {
+    console.log('Lesson request - teachingState:', teachingState)
+    console.log('courseContent available:', !!courseContent)
+    console.log('courseContent length:', courseContent?.length || 0)
+    
     if (!teachingState.isTeaching) {
       return res.status(400).json({ error: 'Teaching session not active' })
     }
 
+    if (!courseContent || courseContent.length === 0) {
+      return res.status(400).json({ error: 'Course content not loaded' })
+    }
+
     const currentTopic = courseContent[teachingState.currentTopicIndex]
     const currentSubtask = currentTopic?.subtasks[teachingState.currentSubtaskIndex]
+    
+    console.log('Current topic index:', teachingState.currentTopicIndex)
+    console.log('Current topic:', currentTopic?.title)
+    console.log('Current subtask:', currentSubtask?.title)
     
     if (!currentTopic || !currentSubtask) {
       return res.status(400).json({ error: 'No more content available' })

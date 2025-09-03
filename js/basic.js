@@ -106,6 +106,13 @@ window.toggleMode = () => {
 // Start teaching session
 window.startTeaching = async () => {
     try {
+        // Verify avatar is ready
+        if (!avatarSynthesizer) {
+            log('⚠️ Configure e inicie a sessão do avatar antes de começar o curso!');
+            window.addToChatHistory('⚠️ Configure o avatar primeiro nas configurações e clique em "🚀 Start Session"', false);
+            return;
+        }
+        
         const resp = await fetch('/api/teaching/start', { method: 'POST' });
         if (!resp.ok) throw new Error('Failed to start teaching');
         
@@ -155,8 +162,13 @@ window.stopTeaching = async () => {
 // Load current lesson content
 window.loadCurrentLesson = async () => {
     try {
+        log('📚 Carregando próxima lição...');
+        
         const resp = await fetch('/api/teaching/lesson', { method: 'POST' });
-        if (!resp.ok) throw new Error('Failed to load lesson');
+        if (!resp.ok) {
+            const errorText = await resp.text();
+            throw new Error(`HTTP ${resp.status}: ${errorText}`);
+        }
         
         const data = await resp.json();
         if (data.success) {
@@ -166,6 +178,8 @@ window.loadCurrentLesson = async () => {
             teachingState.currentTopic = lesson.topicTitle;
             teachingState.currentSubtask = lesson.subtaskTitle;
             teachingState.progress = lesson.progress;
+            
+            log(`🎯 Tópico: ${lesson.topicTitle} - ${lesson.subtaskTitle}`);
             
             // Update UI
             document.getElementById('currentTopic').textContent = 
@@ -189,9 +203,12 @@ window.loadCurrentLesson = async () => {
             // Make avatar speak the lesson
             await window.speakLesson(lesson.content);
             
+        } else {
+            throw new Error(data.error || 'Failed to load lesson');
         }
     } catch (err) {
-        log('Erro ao carregar lição: ' + err.message);
+        log('❌ Erro ao carregar lição: ' + err.message);
+        console.error('Lesson loading error:', err);
     }
 };
 
@@ -199,7 +216,7 @@ window.loadCurrentLesson = async () => {
 window.speakLesson = async (content) => {
     try {
         if (!avatarSynthesizer) {
-            log('Avatar não está disponível para falar');
+            log('⚠️ Avatar não está disponível. Configure e inicie a sessão primeiro.');
             return;
         }
         
@@ -211,7 +228,9 @@ window.speakLesson = async (content) => {
         const spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(content)}</voice></speak>`;
         
         document.getElementById('audio').muted = false;
+        document.getElementById('stopSpeaking').disabled = false;
         await avatarSynthesizer.speakSsmlAsync(spokenSsml);
+        document.getElementById('stopSpeaking').disabled = true;
         
     } catch (err) {
         log('Erro ao falar lição: ' + err.message);
