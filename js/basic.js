@@ -8,6 +8,15 @@ var useTcpForWebRTC = false
 var previousAnimationFrameTimestamp = 0;
 var chatHistory = [];
 
+// NEW: Teaching mode state
+var isTeachingMode = false;
+var teachingState = {
+    isActive: false,
+    currentTopic: '',
+    currentSubtask: '',
+    progress: { topicIndex: 0, subtaskIndex: 0, totalTopics: 0, totalSubtasks: 0 }
+};
+
 // Logger
 const log = msg => {
     document.getElementById('logging').innerHTML += msg + '<br>'
@@ -69,6 +78,225 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// ============ NEW TEACHING MODE FUNCTIONS ============
+
+// Toggle between chat and teaching mode
+window.toggleMode = () => {
+    isTeachingMode = !isTeachingMode;
+    const modeText = document.getElementById('modeText');
+    const chatSection = document.getElementById('chatSection');
+    const teachingSection = document.getElementById('teachingSection');
+    
+    if (isTeachingMode) {
+        modeText.textContent = '🎓 Teaching Mode';
+        chatSection.style.display = 'none';
+        teachingSection.style.display = 'block';
+    } else {
+        modeText.textContent = '💬 Chat Mode';
+        chatSection.style.display = 'block';
+        teachingSection.style.display = 'none';
+        // Stop teaching if active
+        if (teachingState.isActive) {
+            window.stopTeaching();
+        }
+    }
+};
+
+// Start teaching session
+window.startTeaching = async () => {
+    try {
+        const resp = await fetch('/api/teaching/start', { method: 'POST' });
+        if (!resp.ok) throw new Error('Failed to start teaching');
+        
+        const data = await resp.json();
+        teachingState.isActive = true;
+        
+        // Update UI
+        document.getElementById('startTeaching').disabled = true;
+        document.getElementById('nextLesson').disabled = false;
+        document.getElementById('stopTeaching').disabled = false;
+        document.getElementById('askTeachingQuestion').disabled = false;
+        document.getElementById('lessonProgress').style.display = 'block';
+        document.getElementById('teachingChat').style.display = 'block';
+        
+        // Load first lesson
+        await window.loadCurrentLesson();
+        
+        log('🎓 Sessão de ensino iniciada!');
+    } catch (err) {
+        log('Erro ao iniciar ensino: ' + err.message);
+    }
+};
+
+// Stop teaching session
+window.stopTeaching = async () => {
+    try {
+        const resp = await fetch('/api/teaching/stop', { method: 'POST' });
+        if (!resp.ok) throw new Error('Failed to stop teaching');
+        
+        teachingState.isActive = false;
+        
+        // Update UI
+        document.getElementById('startTeaching').disabled = false;
+        document.getElementById('nextLesson').disabled = true;
+        document.getElementById('stopTeaching').disabled = true;
+        document.getElementById('askTeachingQuestion').disabled = true;
+        document.getElementById('lessonProgress').style.display = 'none';
+        document.getElementById('lessonContent').style.display = 'none';
+        document.getElementById('teachingChat').style.display = 'none';
+        
+        log('🛑 Sessão de ensino finalizada!');
+    } catch (err) {
+        log('Erro ao parar ensino: ' + err.message);
+    }
+};
+
+// Load current lesson content
+window.loadCurrentLesson = async () => {
+    try {
+        const resp = await fetch('/api/teaching/lesson', { method: 'POST' });
+        if (!resp.ok) throw new Error('Failed to load lesson');
+        
+        const data = await resp.json();
+        if (data.success) {
+            const lesson = data.lesson;
+            
+            // Update progress
+            teachingState.currentTopic = lesson.topicTitle;
+            teachingState.currentSubtask = lesson.subtaskTitle;
+            teachingState.progress = lesson.progress;
+            
+            // Update UI
+            document.getElementById('currentTopic').textContent = 
+                `${lesson.topicTitle} - ${lesson.subtaskTitle}`;
+            document.getElementById('progressText').textContent = 
+                `${lesson.progress.topicIndex + 1}/${lesson.progress.totalTopics} - ${lesson.progress.subtaskIndex + 1}/${lesson.progress.totalSubtasks}`;
+            
+            const progressPercent = ((lesson.progress.topicIndex * 10 + lesson.progress.subtaskIndex + 1) / (lesson.progress.totalTopics * 10)) * 100;
+            document.getElementById('progressFill').style.width = `${progressPercent}%`;
+            
+            // Show lesson content
+            const lessonContent = document.getElementById('lessonContent');
+            lessonContent.innerHTML = `
+                <div class="lesson-text">
+                    <h4>${lesson.subtaskTitle}</h4>
+                    <p>${lesson.content}</p>
+                </div>
+            `;
+            lessonContent.style.display = 'block';
+            
+            // Make avatar speak the lesson
+            await window.speakLesson(lesson.content);
+            
+        }
+    } catch (err) {
+        log('Erro ao carregar lição: ' + err.message);
+    }
+};
+
+// Make avatar speak lesson content
+window.speakLesson = async (content) => {
+    try {
+        if (!avatarSynthesizer) {
+            log('Avatar não está disponível para falar');
+            return;
+        }
+        
+        // Update spokenText for subtitle compatibility
+        const spokenEl = document.getElementById('spokenText');
+        if (spokenEl) spokenEl.value = content;
+        
+        const ttsVoice = document.getElementById('ttsVoice').value;
+        const spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(content)}</voice></speak>`;
+        
+        document.getElementById('audio').muted = false;
+        await avatarSynthesizer.speakSsmlAsync(spokenSsml);
+        
+    } catch (err) {
+        log('Erro ao falar lição: ' + err.message);
+    }
+};
+
+// Move to next lesson
+window.nextLesson = async () => {
+    try {
+        const resp = await fetch('/api/teaching/next', { method: 'POST' });
+        if (!resp.ok) throw new Error('Failed to move to next');
+        
+        const data = await resp.json();
+        if (data.success) {
+            if (data.finished) {
+                log('🎉 Curso finalizado!');
+                window.stopTeaching();
+            } else {
+                await window.loadCurrentLesson();
+            }
+        }
+    } catch (err) {
+        log('Erro ao avançar lição: ' + err.message);
+    }
+};
+
+// Ask question during teaching
+window.askTeachingQuestion = async () => {
+    try {
+        const input = document.getElementById('teachingPrompt');
+        const message = (input.value || '').trim();
+        if (!message) return;
+        
+        const immediate = document.getElementById('immediateAnswer').checked;
+        
+        // Add question to teaching chat history
+        window.addToTeachingChatHistory(message, true);
+        input.value = '';
+        
+        document.getElementById('askTeachingQuestion').disabled = true;
+        
+        const resp = await fetch('/api/teaching/question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, immediate })
+        });
+        
+        if (!resp.ok) throw new Error('Failed to process question');
+        
+        const data = await resp.json();
+        if (data.success) {
+            if (data.type === 'immediate') {
+                // Add answer to chat and speak it
+                window.addToTeachingChatHistory(data.answer, false);
+                await window.speakLesson(data.answer);
+            } else {
+                // Queued response
+                window.addToTeachingChatHistory('✅ ' + data.message, false);
+            }
+        }
+        
+    } catch (err) {
+        log('Erro ao processar pergunta: ' + err.message);
+        window.addToTeachingChatHistory('❌ Erro ao processar pergunta', false);
+    } finally {
+        document.getElementById('askTeachingQuestion').disabled = false;
+    }
+};
+
+// Add message to teaching chat history
+window.addToTeachingChatHistory = (message, isUser = false) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const chatHistoryElement = document.getElementById('teachingChatHistory');
+    
+    if (chatHistoryElement) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${isUser ? 'user' : 'assistant'}`;
+        messageDiv.innerHTML = `
+            <div class="message-content">${message}</div>
+            <div class="message-time">${timestamp}</div>
+        `;
+        chatHistoryElement.appendChild(messageDiv);
+        chatHistoryElement.scrollTop = chatHistoryElement.scrollHeight;
+    }
+};
 
 // Setup WebRTC
 function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {

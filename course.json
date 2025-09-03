@@ -1,0 +1,102 @@
+[
+  {
+    "id": "t1",
+    "title": "Introdução a Machine Learning",
+    "description": "Fundamentos, tipos de aprendizado e pipeline básico",
+    "subtasks": [
+      { "id": "t1s1", "title": "Definições" },
+      { "id": "t1s2", "title": "Aprendizado Supervisionado vs Não" },
+      { "id": "t1s3", "title": "Pipeline ML" }
+    ]
+  },
+  {
+    "id": "t2",
+    "title": "Fundamentos de Redes Neurais",
+    "description": "Perceptron, camadas, ativação, loss e backprop",
+    "subtasks": [
+      { "id": "t2s1", "title": "Perceptron" },
+      { "id": "t2s2", "title": "Funções de Ativação" },
+      { "id": "t2s3", "title": "Backpropagation" }
+    ]
+  },
+  {
+    "id": "t3",
+    "title": "NLP Clássico",
+    "description": "Tokenização, stemming, TF-IDF, n-grams",
+    "subtasks": [
+      { "id": "t3s1", "title": "Tokenização" },
+      { "id": "t3s2", "title": "TF-IDF" },
+      { "id": "t3s3", "title": "n-grams" }
+    ]
+  },
+  {
+    "id": "t4",
+    "title": "Transformers Essentials",
+    "description": "Self-attention, embeddings, positional encoding",
+    "subtasks": [
+      { "id": "t4s1", "title": "Self-Attention" },
+      { "id": "t4s2", "title": "Positional Encoding" },
+      { "id": "t4s3", "title": "Arquitetura Encoder-Decoder" }
+    ]
+  },
+  {
+    "id": "t5",
+    "title": "Prompt Engineering",
+    "description": "Padrões de prompt, few-shot, role prompting",
+    "subtasks": [
+      { "id": "t5s1", "title": "Estratégias" },
+      { "id": "t5s2", "title": "Few-shot" },
+      { "id": "t5s3", "title": "Chain-of-Thought" }
+    ]
+  },
+  {
+    "id": "t6",
+    "title": "Avaliação de Modelos",
+    "description": "Métricas de classificação, regressão, ranking",
+    "subtasks": [
+      { "id": "t6s1", "title": "Precisão & Recall" },
+      { "id": "t6s2", "title": "AUC-ROC" },
+      { "id": "t6s3", "title": "RMSE" }
+    ]
+  },
+  {
+    "id": "t7",
+    "title": "Sistemas de Recomendação",
+    "description": "Collaborative filtering, conteúdo e híbridos",
+    "subtasks": [
+      { "id": "t7s1", "title": "User-Item Matrix" },
+      { "id": "t7s2", "title": "Content-Based" },
+      { "id": "t7s3", "title": "Modelo Híbrido" }
+    ]
+  },
+  {
+    "id": "t8",
+    "title": "MLOps Básico",
+    "description": "Versionamento, tracking, deployment",
+    "subtasks": [
+      { "id": "t8s1", "title": "Versionamento de Dados" },
+      { "id": "t8s2", "title": "Tracking de Experimentos" },
+      { "id": "t8s3", "title": "Deploy Contínuo" }
+    ]
+  },
+  {
+    "id": "t9",
+    "title": "RAG Pipeline",
+    "description": "Ingestão, indexação, retrieval, geração",
+    "subtasks": [
+      { "id": "t9s1", "title": "Indexação" },
+      { "id": "t9s2", "title": "Retrieval" },
+      { "id": "t9s3", "title": "Grounded Generation" }
+    ]
+  },
+  {
+    "id": "t10",
+    "title": "Fine-tuning & Adaptação",
+    "description": "Fine-tuning, LoRA, adapters, PEFT",
+    "subtasks": [
+      { "id": "t10s1", "title": "Fine-tuning Clássico" },
+      { "id": "t10s2", "title": "LoRA" },
+      { "id": "t10s3", "title": "Adapters" }
+    ]
+  }
+]

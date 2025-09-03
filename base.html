@@ -12,7 +12,12 @@
 <div class="app-container">
   <header class="app-header">
     <h1>🤖 Avatar Chat - IA Conversacional</h1>
-    <button id="toggleConfig" class="config-toggle" onclick="window.toggleConfiguration()">⚙️ Configurações</button>
+    <div class="header-controls">
+      <button id="modeToggle" class="mode-toggle" onclick="window.toggleMode()">
+        <span id="modeText">💬 Chat Mode</span>
+      </button>
+      <button id="toggleConfig" class="config-toggle" onclick="window.toggleConfiguration()">⚙️ Configurações</button>
+    </div>
   </header>
 
 <div id="configuration" class="config-panel">
@@ -122,7 +127,7 @@
       </div>
     </div>
     
-    <div class="chat-section">
+    <div class="chat-section" id="chatSection">
       <div class="chat-header">
         <h3>💬 Conversa com o Avatar</h3>
         <button id="clearChat" onclick="window.clearChatHistory()" class="btn btn-small">🗑️ Limpar</button>
@@ -133,6 +138,48 @@
           <input id="userPrompt" type="text" placeholder="Digite sua mensagem aqui..." 
                  onkeydown="if(event.key==='Enter'){event.preventDefault();window.askAI()}" />
           <button id="askAI" onclick="window.askAI()" disabled class="btn btn-primary">📨 Enviar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEW: Teaching Mode Section -->
+    <div class="teaching-section" id="teachingSection" style="display: none;">
+      <div class="teaching-header">
+        <h3>🎓 Modo Ensino</h3>
+        <div class="teaching-controls">
+          <button id="startTeaching" onclick="window.startTeaching()" class="btn btn-success">▶️ Iniciar Curso</button>
+          <button id="nextLesson" onclick="window.nextLesson()" disabled class="btn btn-primary">⏭️ Próximo</button>
+          <button id="stopTeaching" onclick="window.stopTeaching()" disabled class="btn btn-danger">⏹️ Parar</button>
+        </div>
+      </div>
+      
+      <div class="lesson-progress" id="lessonProgress" style="display: none;">
+        <div class="progress-info">
+          <span id="currentTopic">Carregando...</span>
+          <span id="progressText">0/0</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+      </div>
+      
+      <div id="lessonContent" class="lesson-content" style="display: none;"></div>
+      
+      <div class="teaching-chat" id="teachingChat" style="display: none;">
+        <div class="chat-header">
+          <h4>❓ Perguntas durante a aula</h4>
+          <label class="question-mode">
+            <input type="checkbox" id="immediateAnswer" checked>
+            <span>Responder imediatamente</span>
+          </label>
+        </div>
+        <div id="teachingChatHistory" class="chat-history"></div>
+        <div class="chat-input-section">
+          <div class="input-group">
+            <input id="teachingPrompt" type="text" placeholder="Faça uma pergunta sobre a aula..." 
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();window.askTeachingQuestion()}" />
+            <button id="askTeachingQuestion" onclick="window.askTeachingQuestion()" disabled class="btn btn-primary">❓ Perguntar</button>
+          </div>
         </div>
       </div>
     </div>
