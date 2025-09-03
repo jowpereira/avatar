@@ -12,6 +12,7 @@ var isSpeaking = false;
 var currentSpeechKind = 'idle';
 var resumeLessonAfterAnswer = false;
 var lastSpokenSsml = '';
+var hybridCancel = { cancel: false };
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
@@ -107,6 +108,16 @@ function injectGestureBookmarks(ssml) {
     if (!ssml) return ssml;
     // Replace encoded placeholders with actual SSML bookmark tags
     return ssml.replace(/&lt;&lt;gesture\.([a-z0-9\-]+)&gt;&gt;/g, (_m, name) => `<bookmark mark='gesture.${name}'/>`);
+}
+
+function scrubResidualGestureLiterals(ssml) {
+    if (!ssml) return ssml;
+    // Remove any leftover placeholders that weren't converted (safety net)
+    return ssml
+        // Unencoded placeholders
+        .replace(/<<gesture\.[^>]+>>/gi, '')
+        // Encoded placeholders
+        .replace(/&lt;&lt;gesture\.[^&]+&gt;&gt;/gi, '');
 }
 
 // Chat History Management
@@ -476,7 +487,7 @@ function buildSsml(content, ttsVoice, opts = {}) {
             <break time='${paragraphBreakMs}' />
         `);
 
-    const raw = (
+    let raw = (
         `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' ` +
         `xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='${lang}'>` +
         `<voice name='${ttsVoice}'>` +
@@ -487,8 +498,10 @@ function buildSsml(content, ttsVoice, opts = {}) {
         `</mstts:express-as>` +
         `</voice></speak>`
     );
-    // 2) Convert placeholders to SSML bookmarks (batch-friendly; ignored in real-time)
-    return injectGestureBookmarks(raw);
+    // 2) Convert placeholders to SSML bookmarks (batch-friendly; ignored em tempo real)
+    raw = injectGestureBookmarks(raw);
+    // 3) Segurança: caso reste algum literal, remova para não ser falado
+    return scrubResidualGestureLiterals(raw);
 }
 
 window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') => {
@@ -498,18 +511,59 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
             return;
         }
         
-        // Always interrupt any ongoing speech before starting a new one
+        // Always interrupt any ongoing speech before starting a new one (for real-time)
         try { await avatarSynthesizer.stopSpeakingAsync(); } catch {}
         
     const ttsVoice = document.getElementById('ttsVoice').value;
     const spokenSsml = buildSsml(content, ttsVoice, ssmlOptions || {});
     lastSpokenSsml = spokenSsml;
     currentSpeechKind = kind || 'generic';
-        
-        document.getElementById('audio').muted = false;
-        document.getElementById('stopSpeaking').disabled = false;
-    await avatarSynthesizer.speakSsmlAsync(spokenSsml);
-        document.getElementById('stopSpeaking').disabled = true;
+        const hybridOn = document.getElementById('hybridGesturesMode')?.checked;
+        if (hybridOn) {
+            // Hybrid mode: submit to batch and play clip as near-live
+            document.getElementById('stopSpeaking').disabled = false;
+            document.getElementById('audio').muted = false;
+            const region = document.getElementById('region')?.value || '';
+            const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
+            const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
+            const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+            const payload = { region, ssml: spokenSsml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' };
+            hybridCancel = { cancel: false };
+            const submit = await fetch('/api/avatar/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!submit.ok) throw new Error('Falha no envio batch (hybrid)');
+            const sd = await submit.json();
+            const opLoc = sd.operationLocation;
+            if (!opLoc) throw new Error('Operation-Location ausente (hybrid)');
+            // Poll quickly for small chunks
+            const start = Date.now();
+            let resultUrl = null, status = 'NotStarted';
+            while (!hybridCancel.cancel && Date.now() - start < 180000) { // 3 min cap
+                await new Promise(r => setTimeout(r, 2000));
+                const st = await fetch(`/api/avatar/batch-status?operationLocation=${encodeURIComponent(opLoc)}`);
+                if (!st.ok) throw new Error('Falha ao consultar status (hybrid)');
+                const sj = await st.json();
+                status = sj.status;
+                resultUrl = sj.resultUrl;
+                if (status === 'Succeeded' && resultUrl) break;
+                if (status === 'Failed') throw new Error('Batch falhou (hybrid)');
+            }
+            if (hybridCancel.cancel) return;
+            if (!resultUrl) throw new Error('Sem resultado no tempo esperado (hybrid)');
+            // Play
+            const batchVideo = document.getElementById('batchVideo');
+            if (batchVideo) {
+                batchVideo.src = resultUrl;
+                batchVideo.hidden = false;
+                try { await batchVideo.play(); } catch {}
+            }
+            document.getElementById('stopSpeaking').disabled = true;
+        } else {
+            // Real-time default
+            document.getElementById('audio').muted = false;
+            document.getElementById('stopSpeaking').disabled = false;
+            await avatarSynthesizer.speakSsmlAsync(spokenSsml);
+            document.getElementById('stopSpeaking').disabled = true;
+        }
         
     } catch (err) {
         log('Erro ao falar lição: ' + err.message);
@@ -1012,7 +1066,16 @@ window.generateBatchClip = async () => {
 }
 window.stopSpeaking = () => {
     document.getElementById('stopSpeaking').disabled = true
-
+    // Stop both real-time and hybrid playback
+    try { hybridCancel.cancel = true; } catch {}
+    try {
+        const batchVideo = document.getElementById('batchVideo');
+        if (batchVideo && !batchVideo.hidden) {
+            batchVideo.pause();
+            batchVideo.currentTime = 0;
+            // batchVideo.hidden = true; // opcional
+        }
+    } catch {}
     avatarSynthesizer.stopSpeakingAsync().then(
         log("[" + (new Date()).toISOString() + "] Stop speaking request sent.")
     ).catch(log);
