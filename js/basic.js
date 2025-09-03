@@ -523,40 +523,50 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
             // Hybrid mode: submit to batch and play clip as near-live
             document.getElementById('stopSpeaking').disabled = false;
             document.getElementById('audio').muted = false;
-            const region = document.getElementById('region')?.value || '';
-            const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
-            const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
-            const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
-            const payload = { region, ssml: spokenSsml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' };
-            hybridCancel = { cancel: false };
-            const submit = await fetch('/api/avatar/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (!submit.ok) throw new Error('Falha no envio batch (hybrid)');
-            const sd = await submit.json();
-            const opLoc = sd.operationLocation;
-            if (!opLoc) throw new Error('Operation-Location ausente (hybrid)');
-            // Poll quickly for small chunks
-            const start = Date.now();
-            let resultUrl = null, status = 'NotStarted';
-            while (!hybridCancel.cancel && Date.now() - start < 180000) { // 3 min cap
-                await new Promise(r => setTimeout(r, 2000));
-                const st = await fetch(`/api/avatar/batch-status?operationLocation=${encodeURIComponent(opLoc)}`);
-                if (!st.ok) throw new Error('Falha ao consultar status (hybrid)');
-                const sj = await st.json();
-                status = sj.status;
-                resultUrl = sj.resultUrl;
-                if (status === 'Succeeded' && resultUrl) break;
-                if (status === 'Failed') throw new Error('Batch falhou (hybrid)');
+            try {
+                const region = document.getElementById('region')?.value || '';
+                const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
+                const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
+                const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+                const payload = { region, ssml: spokenSsml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' };
+                hybridCancel = { cancel: false };
+                const submit = await fetch('/api/avatar/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!submit.ok) throw new Error('Falha no envio batch (hybrid)');
+                const sd = await submit.json();
+                const opLoc = sd.operationLocation;
+                if (!opLoc) throw new Error('Operation-Location ausente (hybrid)');
+                // Poll quickly for smaller latência (com fallback rápido)
+                const start = Date.now();
+                const timeoutMs = 30000; // 30s para fallback rápido
+                let resultUrl = null, status = 'NotStarted';
+                while (!hybridCancel.cancel && Date.now() - start < timeoutMs) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    const st = await fetch(`/api/avatar/batch-status?operationLocation=${encodeURIComponent(opLoc)}`);
+                    if (!st.ok) throw new Error('Falha ao consultar status (hybrid)');
+                    const sj = await st.json();
+                    status = sj.status;
+                    resultUrl = sj.resultUrl;
+                    if (status === 'Succeeded' && resultUrl) break;
+                    if (status === 'Failed') throw new Error('Batch falhou (hybrid)');
+                }
+                if (hybridCancel.cancel) return;
+                if (!resultUrl) throw new Error('Sem resultado no tempo esperado (hybrid)');
+                // Play
+                const batchVideo = document.getElementById('batchVideo');
+                if (batchVideo) {
+                    batchVideo.src = resultUrl;
+                    batchVideo.hidden = false;
+                    try { await batchVideo.play(); } catch {}
+                }
+                document.getElementById('stopSpeaking').disabled = true;
+            } catch (hybridErr) {
+                log('ℹ️ Hybrid indisponível, falando em tempo real: ' + (hybridErr?.message || hybridErr));
+                // Fallback imediato para tempo real TTS
+                document.getElementById('audio').muted = false;
+                document.getElementById('stopSpeaking').disabled = false;
+                await avatarSynthesizer.speakSsmlAsync(spokenSsml);
+                document.getElementById('stopSpeaking').disabled = true;
             }
-            if (hybridCancel.cancel) return;
-            if (!resultUrl) throw new Error('Sem resultado no tempo esperado (hybrid)');
-            // Play
-            const batchVideo = document.getElementById('batchVideo');
-            if (batchVideo) {
-                batchVideo.src = resultUrl;
-                batchVideo.hidden = false;
-                try { await batchVideo.play(); } catch {}
-            }
-            document.getElementById('stopSpeaking').disabled = true;
         } else {
             // Real-time default
             document.getElementById('audio').muted = false;
