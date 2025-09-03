@@ -35,20 +35,11 @@ app.post('/api/generate', async (req, res) => {
       return res.status(500).send('Server missing OPENAI_API_KEY')
     }
 
-    const system = 'Você é um assistente amigável que responde em português do Brasil.'
-    const user = message
-
-    const aiMsg = await llm.invoke([
-      { role: 'system', content: system },
-      { role: 'user', content: user }
-    ])
-
-    const text = typeof aiMsg?.content === 'string'
-      ? aiMsg.content
-      : Array.isArray(aiMsg?.content)
-        ? aiMsg.content.map(p => (typeof p === 'string' ? p : p?.text || '')).join(' ')
-        : ''
-
+    // Delegate to LangGraph chat flow for compatibility on this path
+    const inputs = { messages: [{ role: 'system', content: 'Você é um assistente amigável em português.' }, { role: 'user', content: message }] }
+    const out = await graph.invoke(inputs)
+    const last = out?.messages?.[out.messages.length - 1]
+    const text = typeof last?.content === 'string' ? last.content : Array.isArray(last?.content) ? last.content.map(p => (typeof p === 'string' ? p : p?.text || '')).join(' ') : ''
     res.json({ text: text || 'Desculpe, não consegui gerar uma resposta agora.' })
   } catch (err) {
     console.error(err)
