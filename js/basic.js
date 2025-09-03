@@ -11,6 +11,7 @@ var isAdvancing = false;
 var isSpeaking = false;
 var currentSpeechKind = 'idle';
 var resumeLessonAfterAnswer = false;
+var lastSpokenSsml = '';
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
@@ -28,6 +29,84 @@ var teachingState = {
 // Logger
 const log = msg => {
     document.getElementById('logging').innerHTML += msg + '<br>'
+}
+
+// ============ Gesture Analyzer (SSML bookmark friendly) ============
+// Supported gesture samples by character:style (subset; extend as needed)
+const SUPPORTED_GESTURES = {
+    'lisa:casual-sitting': new Set(['wave-left-1','wave-left-2','thumbsup-left-1','show-front-1','show-left-1','show-right-1','point-left-1','point-right-1','numeric1-left-1']),
+    'lisa:graceful-sitting': new Set(['wave-left-1','wave-left-2','thumbsup-left','show-left-1','show-right-1']),
+    'lori:graceful': new Set(['hello','thanks','nod','applaud','show-left','show-right']),
+    'lori:casual': new Set(['hello','thanks','come-on','good']),
+    'meg:formal': new Set(['say-hi','thanks','applaud','number-one','slide-from-left-to-right']),
+    'max:business': new Set(['say-hi','thanks','number-one','front-right'])
+}
+
+function currentAvatarKey() {
+    try {
+        const ch = (document.getElementById('talkingAvatarCharacter')?.value || '').toLowerCase();
+        const st = (document.getElementById('talkingAvatarStyle')?.value || '').toLowerCase();
+        return `${ch}:${st}`;
+    } catch { return 'lisa:casual-sitting'; }
+}
+
+function chooseGesture(preferredList) {
+    const key = currentAvatarKey();
+    const supported = SUPPORTED_GESTURES[key];
+    if (!supported) return null;
+    for (const g of preferredList) {
+        if (supported.has(g)) return g;
+    }
+    return null;
+}
+
+// Insert lightweight gesture placeholders into text. Placeholders: <<gesture.NAME>>
+function insertGesturePlaceholders(text) {
+    if (!text) return text;
+    // Avoid overuse: limit per paragraph
+    const paragraphs = (text || '').split(/\n\n+/);
+    const processed = paragraphs.map(p => {
+        let used = 0;
+        let out = p;
+        // Greetings
+        if (/(?:\b(olá|oi|hello|bem[- ]?vindo|bem[- ]?vindos)\b)/i.test(out) && used < 2) {
+            const g = chooseGesture(['wave-left-1','hello','say-hi']);
+            if (g) { out = out.replace(/\b(olá|oi|hello|bem[- ]?vindo|bem[- ]?vindos)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
+        }
+        // Thanks
+        if (/(?:\b(obrigado|obrigada|thanks|valeu)\b)/i.test(out) && used < 2) {
+            const g = chooseGesture(['thanks','applaud','thumbsup-left-1']);
+            if (g) { out = out.replace(/\b(obrigado|obrigada|thanks|valeu)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
+        }
+        // Emphasis words
+        if (/(?:\b(atenção|importante)\b)/i.test(out) && used < 2) {
+            const g = chooseGesture(['show-front-1','front-right']);
+            if (g) { out = out.replace(/\b(atenção|importante)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
+        }
+        // Enumerations: "primeiro", "1." → number one gesture
+        if (/(^|\s)(1\.|1º|primeiro)\b/i.test(out) && used < 2) {
+            const g = chooseGesture(['numeric1-left-1','number-one']);
+            if (g) { out = out.replace(/(^|\s)(1\.|1º|primeiro)\b/i, (m, sp) => `${sp}${m.trim()} <<gesture.${g}>>`); used++; }
+        }
+        // Pointing when saying "veja" / "olhe"
+        if (/(?:\b(veja|olhe)\b)/i.test(out) && used < 2) {
+            const g = chooseGesture(['point-left-1','show-left-1','show-right-1']);
+            if (g) { out = out.replace(/\b(veja|olhe)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
+        }
+        // Affirmative cue → nod
+        if (/(?:\b(certo\?|ok\?|vamos lá\?)\b)/i.test(out) && used < 2) {
+            const g = chooseGesture(['nod']);
+            if (g) { out = out.replace(/\b(certo\?|ok\?|vamos lá\?)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
+        }
+        return out;
+    });
+    return processed.join('\n\n');
+}
+
+function injectGestureBookmarks(ssml) {
+    if (!ssml) return ssml;
+    // Replace encoded placeholders with actual SSML bookmark tags
+    return ssml.replace(/&lt;&lt;gesture\.([a-z0-9\-]+)&gt;&gt;/g, (_m, name) => `<bookmark mark='gesture.${name}'/>`);
 }
 
 // Chat History Management
@@ -358,7 +437,9 @@ function playLessonFromIndex(index) {
 }
 
 function buildSsml(content, ttsVoice, opts = {}) {
-    const plain = stripMarkdown(content || '');
+    // 1) Sanitize and analyze text for gesture cues
+    const withGestures = insertGesturePlaceholders(content || '');
+    const plain = stripMarkdown(withGestures || '');
     const paragraphs = plain.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
     // Derive xml:lang from voice name when possible (e.g., pt-BR-AntonioNeural)
     let lang = 'pt-BR';
@@ -395,7 +476,7 @@ function buildSsml(content, ttsVoice, opts = {}) {
             <break time='${paragraphBreakMs}' />
         `);
 
-    return (
+    const raw = (
         `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' ` +
         `xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='${lang}'>` +
         `<voice name='${ttsVoice}'>` +
@@ -406,6 +487,8 @@ function buildSsml(content, ttsVoice, opts = {}) {
         `</mstts:express-as>` +
         `</voice></speak>`
     );
+    // 2) Convert placeholders to SSML bookmarks (batch-friendly; ignored in real-time)
+    return injectGestureBookmarks(raw);
 }
 
 window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') => {
@@ -420,6 +503,7 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
         
     const ttsVoice = document.getElementById('ttsVoice').value;
     const spokenSsml = buildSsml(content, ttsVoice, ssmlOptions || {});
+    lastSpokenSsml = spokenSsml;
     currentSpeechKind = kind || 'generic';
         
         document.getElementById('audio').muted = false;
@@ -831,9 +915,11 @@ window.speak = () => {
     document.getElementById('audio').muted = false
     let spokenText = document.getElementById('spokenText').value
     let ttsVoice = document.getElementById('ttsVoice').value
-    let spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(spokenText)}</voice></speak>`
+    // Reuse the SSML builder so gesture bookmarks and prosody settings apply here too
+    const ssml = buildSsml(spokenText, ttsVoice, ssmlOptionsFor('chat'))
+    lastSpokenSsml = ssml;
     console.log("[" + (new Date()).toISOString() + "] Speak request sent.")
-    avatarSynthesizer.speakSsmlAsync(spokenSsml).then(
+    avatarSynthesizer.speakSsmlAsync(ssml).then(
         (result) => {
             document.getElementById('speak').disabled = false
             document.getElementById('stopSpeaking').disabled = true
@@ -850,6 +936,17 @@ window.speak = () => {
                 }
             }
         }).catch(log);
+}
+
+// Expose helper to copy last SSML (useful for batch synthesis with gestures)
+window.copyLastSsmlToClipboard = async () => {
+    try {
+        if (!lastSpokenSsml) { log('ℹ️ Nenhum SSML gerado ainda.'); return; }
+        await navigator.clipboard.writeText(lastSpokenSsml);
+        log('📋 SSML copiado para a área de transferência.');
+    } catch (e) {
+        log('❌ Falha ao copiar SSML: ' + (e?.message || e));
+    }
 }
 window.stopSpeaking = () => {
     document.getElementById('stopSpeaking').disabled = true
