@@ -5,8 +5,6 @@
 var avatarSynthesizer
 var peerConnection
 var useTcpForWebRTC = false
-var isSessionStarting = false
-var sessionStarted = false
 var previousAnimationFrameTimestamp = 0;
 
 // Logger
@@ -101,20 +99,20 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
         log("WebRTC status: " + peerConnection.iceConnectionState)
 
         if (peerConnection.iceConnectionState === 'connected') {
-            sessionStarted = true
-            isSessionStarting = false
             document.getElementById('stopSession').disabled = false
+            document.getElementById('speak').disabled = false
             const askAIButton = document.getElementById('askAI')
             if (askAIButton) askAIButton.disabled = false
             document.getElementById('configuration').hidden = true
         }
 
         if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
-            sessionStarted = false
-            const askAIButton = document.getElementById('askAI')
-            if (askAIButton) askAIButton.disabled = true
+            document.getElementById('speak').disabled = true
             document.getElementById('stopSpeaking').disabled = true
             document.getElementById('stopSession').disabled = true
+            document.getElementById('startSession').disabled = false
+            const askAIButton = document.getElementById('askAI')
+            if (askAIButton) askAIButton.disabled = true
             document.getElementById('configuration').hidden = false
         }
     }
@@ -136,19 +134,57 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
                 };
                 log("Unable to start avatar: " + cancellationDetails.errorDetails);
             }
-            const askAIButton = document.getElementById('askAI')
-            if (askAIButton) askAIButton.disabled = true
+            document.getElementById('startSession').disabled = false;
             document.getElementById('configuration').hidden = false;
         }
     }).catch(
         (error) => {
             console.log("[" + (new Date()).toISOString() + "] Avatar failed to start. Error: " + error)
-            const askAIButton = document.getElementById('askAI')
-            if (askAIButton) askAIButton.disabled = true
+            document.getElementById('startSession').disabled = false
             document.getElementById('configuration').hidden = false
-            isSessionStarting = false
         }
     );
+}
+
+// Ask AI and speak response
+window.askAI = async () => {
+    try {
+        const btn = document.getElementById('askAI')
+        const input = document.getElementById('userPrompt')
+        if (!btn || !input) return
+        const message = (input.value || '').trim()
+        if (!message) return
+        btn.disabled = true
+        document.getElementById('stopSpeaking').disabled = false
+
+        const resp = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+        })
+        if (!resp.ok) {
+            const t = await resp.text()
+            throw new Error(t || 'AI request failed')
+        }
+        const data = await resp.json()
+        const aiText = data.text || ''
+        if (!aiText) throw new Error('Empty AI response')
+
+        // Mirror into spokenText for subtitles behavior
+        const spokenEl = document.getElementById('spokenText')
+        if (spokenEl) spokenEl.value = aiText
+
+        const ttsVoice = document.getElementById('ttsVoice').value
+        const spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(aiText)}</voice></speak>`
+        document.getElementById('audio').muted = false
+        await avatarSynthesizer.speakSsmlAsync(spokenSsml)
+    } catch (err) {
+        log('AI error: ' + (err?.message || String(err)))
+    } finally {
+        const btn = document.getElementById('askAI')
+        if (btn) btn.disabled = false
+        document.getElementById('stopSpeaking').disabled = true
+    }
 }
 
 // Make video background transparent by matting
@@ -208,16 +244,12 @@ function htmlEncode(text) {
 }
 
 window.startSession = () => {
-    if (isSessionStarting || sessionStarted) {
-        return
-    }
     const cogSvcRegion = document.getElementById('region').value
     const cogSvcSubKey = document.getElementById('APIKey').value
     if (cogSvcSubKey === '') {
         alert('Please fill in the API key of your speech resource.')
         return
     }
-    isSessionStarting = true
 
     const privateEndpointEnabled = document.getElementById('enablePrivateEndpoint').checked
     const privateEndpoint = document.getElementById('privateEndpoint').value.slice(8)
@@ -247,8 +279,7 @@ window.startSession = () => {
     avatarConfig.backgroundColor = document.getElementById('backgroundColor').value
     avatarConfig.backgroundImage = document.getElementById('backgroundImageUrl').value
 
-    const askAIButton = document.getElementById('askAI')
-    if (askAIButton) askAIButton.disabled = true
+    document.getElementById('startSession').disabled = true
     
     const xhr = new XMLHttpRequest()
     if (privateEndpointEnabled) {
@@ -286,57 +317,31 @@ window.startSession = () => {
     
 }
 
-window.askAI = async () => {
-    const btn = document.getElementById('askAI')
-    const input = document.getElementById('userPrompt')
-    if (!input || !btn) return
-    const message = (input.value || '').trim()
-    if (!message) return
-    btn.disabled = true
+window.speak = () => {
+    document.getElementById('speak').disabled = true;
     document.getElementById('stopSpeaking').disabled = false
-    try {
-        const response = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
-        })
-        if (!response.ok) {
-            const text = await response.text()
-            throw new Error('AI error: ' + text)
-        }
-        const data = await response.json()
-        const aiText = data.text || ''
-        // Mirror AI text into spokenText so subtitles reflect it
-        const spokenTextArea = document.getElementById('spokenText')
-        if (spokenTextArea) {
-            spokenTextArea.value = aiText
-        }
-        const ttsVoice = document.getElementById('ttsVoice').value
-        const spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(aiText)}</voice></speak>`
-        console.log("[" + (new Date()).toISOString() + "] Ask AI + speak request sent.")
-        document.getElementById('audio').muted = false
-        await avatarSynthesizer.speakSsmlAsync(spokenSsml).then(
-            (result) => {
-                if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
-                    console.log("[" + (new Date()).toISOString() + "] Speech synthesized for AI text. Result ID: " + result.resultId)
-                } else {
-                    console.log("[" + (new Date()).toISOString() + "] Unable to speak AI text. Result ID: " + result.resultId)
-                    if (result.reason === SpeechSDK.ResultReason.Canceled) {
-                        let cancellationDetails = SpeechSDK.CancellationDetails.fromResult(result)
-                        console.log(cancellationDetails.reason)
-                        if (cancellationDetails.reason === SpeechSDK.CancellationReason.Error) {
-                            console.log(cancellationDetails.errorDetails)
-                        }
+    document.getElementById('audio').muted = false
+    let spokenText = document.getElementById('spokenText').value
+    let ttsVoice = document.getElementById('ttsVoice').value
+    let spokenSsml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='${ttsVoice}'><mstts:leadingsilence-exact value='0'/>${htmlEncode(spokenText)}</voice></speak>`
+    console.log("[" + (new Date()).toISOString() + "] Speak request sent.")
+    avatarSynthesizer.speakSsmlAsync(spokenSsml).then(
+        (result) => {
+            document.getElementById('speak').disabled = false
+            document.getElementById('stopSpeaking').disabled = true
+            if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+                console.log("[" + (new Date()).toISOString() + "] Speech synthesized to speaker for text [ " + spokenText + " ]. Result ID: " + result.resultId)
+            } else {
+                console.log("[" + (new Date()).toISOString() + "] Unable to speak text. Result ID: " + result.resultId)
+                if (result.reason === SpeechSDK.ResultReason.Canceled) {
+                    let cancellationDetails = SpeechSDK.CancellationDetails.fromResult(result)
+                    console.log(cancellationDetails.reason)
+                    if (cancellationDetails.reason === SpeechSDK.CancellationReason.Error) {
+                        console.log(cancellationDetails.errorDetails)
                     }
                 }
             }
-        )
-    } catch (err) {
-        log(err.message || String(err))
-    } finally {
-        btn.disabled = false
-        document.getElementById('stopSpeaking').disabled = true
-    }
+        }).catch(log);
 }
 
 
@@ -349,12 +354,10 @@ window.stopSpeaking = () => {
 }
 
 window.stopSession = () => {
-    const askAIButton = document.getElementById('askAI')
-    if (askAIButton) askAIButton.disabled = true
+    document.getElementById('speak').disabled = true
     document.getElementById('stopSession').disabled = true
     document.getElementById('stopSpeaking').disabled = true
     avatarSynthesizer.close()
-    sessionStarted = false
 }
 
 window.updataTransparentBackground = () => {
@@ -368,57 +371,6 @@ window.updataTransparentBackground = () => {
         document.getElementById('backgroundColor').disabled = false
     }
 }
-
-// Auto-start session when page is ready or when API key is entered
-document.addEventListener('DOMContentLoaded', () => {
-    const promptInput = document.getElementById('userPrompt')
-    if (promptInput) {
-        promptInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault()
-                window.askAI()
-            }
-        })
-    }
-
-    const apiKeyInput = document.getElementById('APIKey')
-    const regionInput = document.getElementById('region')
-    const enablePrivateEndpoint = document.getElementById('enablePrivateEndpoint')
-    const privateEndpointInput = document.getElementById('privateEndpoint')
-
-    const configValid = () => {
-        const keyOk = apiKeyInput && apiKeyInput.value.trim() !== ''
-        const usePrivate = enablePrivateEndpoint && enablePrivateEndpoint.checked
-        if (usePrivate) {
-            const peVal = privateEndpointInput ? privateEndpointInput.value.trim() : ''
-            return keyOk && peVal !== ''
-        }
-        // Region tem um valor padrão; basta ter a key
-        return keyOk
-    }
-
-    const maybeStart = () => {
-        if (!isSessionStarting && !sessionStarted && configValid()) {
-            window.startSession()
-        }
-    }
-    if (apiKeyInput) {
-        apiKeyInput.addEventListener('change', maybeStart)
-        apiKeyInput.addEventListener('blur', maybeStart)
-    }
-    if (regionInput) {
-        regionInput.addEventListener('change', maybeStart)
-    }
-    if (enablePrivateEndpoint) {
-        enablePrivateEndpoint.addEventListener('change', maybeStart)
-    }
-    if (privateEndpointInput) {
-        privateEndpointInput.addEventListener('input', maybeStart)
-        privateEndpointInput.addEventListener('blur', maybeStart)
-    }
-    // Try immediately in case the key is prefilled (e.g., via password manager)
-    maybeStart()
-})
 
 window.updatePrivateEndpoint = () => {
     if (document.getElementById('enablePrivateEndpoint').checked) {

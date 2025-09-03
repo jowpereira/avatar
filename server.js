@@ -18,7 +18,7 @@ app.use(bodyParser.json())
 app.use(express.static(path.join(__dirname)))
 
 const llm = new ChatOpenAI({
-  model: 'gpt-4o-mini',
+  model: 'gpt-5-nano',
   temperature: 0.6,
   maxTokens: 256,
   // OPENAI_API_KEY é lido automaticamente de process.env.OPENAI_API_KEY
