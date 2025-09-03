@@ -398,11 +398,14 @@
     display: grid;
     grid-template-columns: 1fr 400px;
     gap: 1.5rem;
-    height: calc(100vh - 200px);
+    /* Allow the chat area to grow so logs never overlap */
+    min-height: calc(100vh - 260px);
+    height: auto;
 }
 
 .video-section {
     background: rgba(255, 255, 255, 0.95);
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     border-radius: 15px;
     padding: 1.5rem;
@@ -463,6 +466,7 @@
     display: flex;
     flex-direction: column;
     background: rgba(255, 255, 255, 0.95);
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     border-radius: 15px;
     padding: 1.5rem;
@@ -566,6 +570,7 @@
 
 .logs-section {
     background: rgba(255, 255, 255, 0.95);
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     margin: 1rem;
     border-radius: 15px;
@@ -573,6 +578,8 @@
     box-shadow: 0 8px 32px rgba(0,0,0,0.1);
     border: 1px solid rgba(255,255,255,0.2);
     max-height: 200px;
+    position: relative; /* ensure normal flow without stacking over chat */
+    z-index: 0;
 }
 
 .logs-header {

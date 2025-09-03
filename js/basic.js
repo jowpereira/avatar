@@ -9,6 +9,8 @@ var previousAnimationFrameTimestamp = 0;
 var chatHistory = [];
 var isAdvancing = false;
 var isSpeaking = false;
+var currentSpeechKind = 'idle';
+var resumeLessonAfterAnswer = false;
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
@@ -16,7 +18,11 @@ var teachingState = {
     isActive: false,
     currentTopic: '',
     currentSubtask: '',
-    progress: { topicIndex: 0, subtaskIndex: 0, totalTopics: 0, totalSubtasks: 0 }
+    progress: { topicIndex: 0, subtaskIndex: 0, totalTopics: 0, totalSubtasks: 0 },
+    currentLessonContent: '',
+    lessonParagraphs: [],
+    lessonIndex: 0,
+    lessonActive: false
 };
 
 // Logger
@@ -105,6 +111,12 @@ window.toggleMode = () => {
     }
 };
 
+// Split content into paragraphs (same logic as buildSsml)
+function getParagraphsFromContent(content) {
+    const plain = stripMarkdown(content || '');
+    return plain.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+}
+
 // Start teaching session
 window.startTeaching = async () => {
     try {
@@ -192,7 +204,7 @@ window.showPendingQuestions = async () => {
         if (data.success && data.answers && data.answers.length > 0) {
             log(`📋 Respondendo ${data.answers.length} perguntas importantes:`);
             // Preface before answering queued questions (calmer style)
-            await window.speakLesson('Então, respondendo ao chat:', ssmlOptionsFor('preface'));
+            await window.speakLesson('Então, respondendo ao chat:', ssmlOptionsFor('preface'), 'preface');
             
             for (const qa of data.answers) {
                 // Add to teaching chat
@@ -204,7 +216,7 @@ window.showPendingQuestions = async () => {
                 );
                 
                 // Make avatar speak the answer
-                await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'));
+                await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'), 'queuedAnswer');
                 
                 // Small pause between answers
                 await new Promise(resolve => setTimeout(resolve, 1000));
@@ -226,11 +238,11 @@ window.answerPendingForCurrentTopic = async () => {
         if (!resp.ok) return;
         const data = await resp.json();
         if (data.success && data.answers && data.answers.length > 0) {
-            await window.speakLesson('Antes de avançarmos, respondendo as perguntas deste tópico:', ssmlOptionsFor('preface'));
+            await window.speakLesson('Antes de avançarmos, respondendo as perguntas deste tópico:', ssmlOptionsFor('preface'), 'preface');
             for (const qa of data.answers) {
                 window.addToTeachingChatHistory(`📌 Pergunta: ${qa.question}`, true);
                 window.addToTeachingChatHistory(`🎓 Resposta: ${qa.answer}`, false);
-                await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'));
+                await window.speakLesson(qa.answer, ssmlOptionsFor('queuedAnswer'), 'queuedAnswer');
                 await new Promise(r => setTimeout(r, 600));
             }
         }
@@ -275,8 +287,8 @@ window.loadCurrentLesson = async () => {
                 lessonContent.style.display = 'none';
             }
             
-            // Make avatar speak the lesson
-            await window.speakLesson(lesson.content, ssmlOptionsFor('lesson'));
+            // Start structured lesson playback (paragraph by paragraph)
+            startLessonPlayback(lesson.content);
             
         } else {
             throw new Error(data.error || 'Failed to load lesson');
@@ -334,6 +346,27 @@ function ssmlOptionsFor(kind) {
     }
 }
 
+// Start lesson playback from the beginning
+function startLessonPlayback(lessonText) {
+    teachingState.currentLessonContent = lessonText || '';
+    teachingState.lessonParagraphs = getParagraphsFromContent(lessonText || '');
+    teachingState.lessonIndex = 0;
+    teachingState.lessonActive = true;
+    resumeLessonAfterAnswer = false;
+    playLessonFromIndex(teachingState.lessonIndex);
+}
+
+// Play a specific lesson paragraph by index
+function playLessonFromIndex(index) {
+    if (!teachingState.lessonActive) return;
+    const paras = teachingState.lessonParagraphs || [];
+    if (!paras.length) { teachingState.lessonActive = false; return; }
+    if (index < 0 || index >= paras.length) { teachingState.lessonActive = false; return; }
+    teachingState.lessonIndex = index;
+    const paragraph = paras[index];
+    window.speakLesson(paragraph, ssmlOptionsFor('lesson'), 'lesson');
+}
+
 function buildSsml(content, ttsVoice, opts = {}) {
     const plain = stripMarkdown(content || '');
     const paragraphs = plain.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
@@ -385,7 +418,7 @@ function buildSsml(content, ttsVoice, opts = {}) {
     );
 }
 
-window.speakLesson = async (content, ssmlOptions = undefined) => {
+window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') => {
     try {
         if (!avatarSynthesizer) {
             log('⚠️ Avatar não está disponível. Configure e inicie a sessão primeiro.');
@@ -397,10 +430,11 @@ window.speakLesson = async (content, ssmlOptions = undefined) => {
         
     const ttsVoice = document.getElementById('ttsVoice').value;
     const spokenSsml = buildSsml(content, ttsVoice, ssmlOptions || {});
+    currentSpeechKind = kind || 'generic';
         
         document.getElementById('audio').muted = false;
         document.getElementById('stopSpeaking').disabled = false;
-        await avatarSynthesizer.speakSsmlAsync(spokenSsml);
+    await avatarSynthesizer.speakSsmlAsync(spokenSsml);
         document.getElementById('stopSpeaking').disabled = true;
         
     } catch (err) {
@@ -476,7 +510,9 @@ window.askTeachingQuestion = async () => {
             if (data.type === 'immediate') {
                 // Add answer to chat and speak it
                 window.addToTeachingChatHistory('🤖 ' + data.answer, false);
-                await window.speakLesson(data.answer, ssmlOptionsFor('answer'));
+                // Mark that we should resume lesson after answering
+                resumeLessonAfterAnswer = true;
+                await window.speakLesson(data.answer, ssmlOptionsFor('answer'), 'answer');
             } else {
                 // Show system message (ignored or queued)
                 window.addToTeachingChatHistory('ℹ️ ' + data.message, false);
@@ -590,6 +626,23 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
                 subtitles.hidden = true
                 const nextBtn = document.getElementById('nextLesson');
                 if (nextBtn && !isAdvancing) nextBtn.disabled = false;
+
+                // Resume/continue lesson playback when appropriate
+                if (teachingState.isActive && teachingState.lessonActive) {
+                    if (currentSpeechKind === 'answer' && resumeLessonAfterAnswer) {
+                        // Resume the interrupted paragraph
+                        resumeLessonAfterAnswer = false;
+                        playLessonFromIndex(teachingState.lessonIndex);
+                    } else if (currentSpeechKind === 'lesson') {
+                        // Move to next paragraph automatically
+                        const nextIndex = teachingState.lessonIndex + 1;
+                        if (nextIndex < (teachingState.lessonParagraphs?.length || 0)) {
+                            playLessonFromIndex(nextIndex);
+                        } else {
+                            teachingState.lessonActive = false;
+                        }
+                    }
+                }
             }
             console.log("[" + (new Date()).toISOString() + "] WebRTC event received: " + e.data)
         }
@@ -692,7 +745,7 @@ window.askAI = async () => {
         window.addToChatHistory(aiText, false);
 
     // Speak the AI response via avatar using SSML
-    await window.speakLesson(aiText, ssmlOptionsFor('chat'))
+    await window.speakLesson(aiText, ssmlOptionsFor('chat'), 'chat')
     } catch (err) {
         log('AI error: ' + (err?.message || String(err)))
         window.addToChatHistory('❌ Erro: ' + (err?.message || 'Falha na comunicação'), false);
