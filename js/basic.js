@@ -77,6 +77,9 @@ window.toggleLogs = () => {
 // Enter key support for chat input
 document.addEventListener('DOMContentLoaded', () => {
     const userPrompt = document.getElementById('userPrompt');
+    // Ensure chat is usable even without avatar session (only disabled in course mode)
+    const askAIButton = document.getElementById('askAI');
+    if (askAIButton) askAIButton.disabled = false;
     if (userPrompt) {
         userPrompt.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -104,6 +107,9 @@ window.toggleMode = () => {
         modeText.textContent = '💬 Chat Mode';
         chatSection.style.display = 'block';
         teachingSection.style.display = 'none';
+    // Re-enable chat input when leaving course mode
+    const askAIButton = document.getElementById('askAI');
+    if (askAIButton) askAIButton.disabled = false;
         // Stop teaching if active
         if (teachingState.isActive) {
             window.stopTeaching();
@@ -585,8 +591,6 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
         if (peerConnection.iceConnectionState === 'connected') {
             document.getElementById('stopSession').disabled = false
             document.getElementById('speak').disabled = false
-            const askAIButton = document.getElementById('askAI')
-            if (askAIButton) askAIButton.disabled = false
             document.getElementById('configuration').hidden = true
         }
 
@@ -595,8 +599,6 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
             document.getElementById('stopSpeaking').disabled = true
             document.getElementById('stopSession').disabled = true
             document.getElementById('startSession').disabled = false
-            const askAIButton = document.getElementById('askAI')
-            if (askAIButton) askAIButton.disabled = true
             document.getElementById('configuration').hidden = false
         }
     }
@@ -636,6 +638,11 @@ window.askAI = async () => {
         const btn = document.getElementById('askAI')
         const input = document.getElementById('userPrompt')
         if (!btn || !input) return
+        // Block chat only in Teaching Mode
+        if (isTeachingMode) {
+            window.addToChatHistory('ℹ️ O chat está desativado no modo Curso. Volte para "Chat Mode" para conversar.', false);
+            return;
+        }
         const message = (input.value || '').trim()
         if (!message) return
         
@@ -677,7 +684,7 @@ window.askAI = async () => {
         window.addToChatHistory('❌ Erro: ' + (err?.message || 'Falha na comunicação'), false);
     } finally {
         const btn = document.getElementById('askAI')
-        if (btn) btn.disabled = false
+    if (btn) btn.disabled = false
         document.getElementById('stopSpeaking').disabled = true
     }
 }
