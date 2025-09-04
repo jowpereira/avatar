@@ -122,20 +122,29 @@ function scrubResidualGestureLiterals(ssml) {
 }
 
 // Chat History Management
-window.addToChatHistory = (message, isUser = false) => {
+window.addToChatHistory = (message, isUser = false, sources = undefined) => {
     const timestamp = new Date().toLocaleTimeString();
-    chatHistory.push({
-        message,
-        isUser,
-        timestamp
-    });
+    chatHistory.push({ message, isUser, timestamp, sources });
     
     const chatHistoryElement = document.getElementById('chatHistory');
     if (chatHistoryElement) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `chat-message ${isUser ? 'user' : 'assistant'}`;
+        let sourcesHtml = '';
+        if (!isUser && Array.isArray(sources) && sources.length) {
+            const items = sources.map((s, i) => {
+                const doc = s.document || {};
+                const title = doc.title || doc.name || doc.id || `Fonte ${i+1}`;
+                const url = doc.url;
+                const score = typeof s.score === 'number' ? ` (score=${s.score.toFixed(2)})` : '';
+                const label = (title + score).replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                return url ? `<li><a href="${url}" target="_blank" rel="noopener">${label}</a></li>` : `<li>${label}</li>`;
+            }).join('');
+            sourcesHtml = `<div class="sources"><div class="sources-title">🔎 Fontes</div><ul>${items}</ul></div>`;
+        }
         messageDiv.innerHTML = `
             <div class="message-content">${message}</div>
+            ${sourcesHtml}
             <div class="message-time">${timestamp}</div>
         `;
         chatHistoryElement.appendChild(messageDiv);
@@ -962,30 +971,33 @@ window.askAI = async () => {
         document.getElementById('stopSpeaking').disabled = false
         input.value = ''; // Clear input
 
-        // Prefer LangGraph endpoint; fallback to generate
-        let resp = await fetch('/api/chat', {
+        // Use Corrective RAG by default; fallback to RAG tradicional
+        // Use a stable thread ID per browsing context (fallback to 'default')
+        const threadId = (window.__ragThreadId ||= (Math.random().toString(36).slice(2)));
+        let resp = await fetch('/api/chat-crag', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({ message, threadId })
         })
         if (!resp.ok) {
-            // fallback legacy endpoint
-            resp = await fetch('/api/generate', {
+            // fallback to standard RAG with memory
+            resp = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message })
+                body: JSON.stringify({ message, threadId })
             })
             if (!resp.ok) {
                 const t = await resp.text()
                 throw new Error(t || 'AI request failed')
             }
         }
-        const data = await resp.json()
-        const aiText = data.text || ''
+    const data = await resp.json()
+    const aiText = data.text || ''
+    const sources = data.sources || []
         if (!aiText) throw new Error('Empty AI response')
 
         // Add AI response to chat history
-        window.addToChatHistory(aiText, false);
+    window.addToChatHistory(aiText, false, sources);
         // In Chat Mode, speak AI response via avatar (Course Mode stays muted)
         if (!isTeachingMode && avatarSynthesizer) {
             try {

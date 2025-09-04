@@ -7,6 +7,9 @@ import path from 'path'
 import bodyParser from 'body-parser'
 import { fileURLToPath } from 'url'
 import { ChatOpenAI } from '@langchain/openai'
+import { ragAnswer } from './rag/ragChat.js'
+import { invokeRagWithMemory } from './rag/ragGraph.js'
+import { invokeCorrectiveRagWithMemory } from './rag/correctiveGraph.js'
 import { StateGraph, START, END } from '@langchain/langgraph'
 import dotenv from 'dotenv'
 import { readFileSync } from 'fs'
@@ -100,24 +103,40 @@ const graph = new StateGraph({
   .addEdge('llm', END)
   .compile()
 
+// RAG Chat using Azure AI Search + MemorySaver (LangGraph)
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message } = req.body || {}
-    if (!message || typeof message !== 'string') {
-      return res.status(400).send('message is required')
-    }
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).send('Server missing OPENAI_API_KEY')
-    }
-
-    const inputs = { messages: [{ role: 'system', content: 'Você é um assistente amigável em português.' }, { role: 'user', content: message }] }
-    const out = await graph.invoke(inputs)
-    const last = out?.messages?.[out.messages.length - 1]
-    const text = typeof last?.content === 'string' ? last.content : Array.isArray(last?.content) ? last.content.map(p => (typeof p === 'string' ? p : p?.text || '')).join(' ') : ''
-    res.json({ text: text || 'Desculpe, não consegui gerar uma resposta agora.' })
+  const { message, threadId } = req.body || {}
+  const result = await invokeRagWithMemory(threadId || 'default', message)
+  res.json({ text: result.text, sources: result.sources })
   } catch (err) {
-    console.error(err)
-    res.status(500).send('Internal error')
+    console.error('RAG chat error:', err)
+    res.status(500).json({ error: 'RAG chat error', details: err?.message })
+  }
+})
+
+
+// Legacy RAG without memory (for comparison/testing)
+app.post('/api/chat-rag-simple', async (req, res) => {
+  try {
+    const { message } = req.body || {}
+    const result = await ragAnswer(message)
+    res.json({ text: result.text, sources: result.retrieved })
+  } catch (err) {
+    console.error('Simple RAG error:', err)
+    res.status(500).json({ error: 'Simple RAG error', details: err?.message })
+  }
+})
+
+// Corrective RAG (cRAG) with memory
+app.post('/api/chat-crag', async (req, res) => {
+  try {
+    const { message, threadId } = req.body || {}
+    const result = await invokeCorrectiveRagWithMemory(threadId || 'default', message)
+    res.json({ text: result.text, sources: result.sources })
+  } catch (err) {
+    console.error('Corrective RAG error:', err)
+    res.status(500).json({ error: 'Corrective RAG error', details: err?.message })
   }
 })
 
