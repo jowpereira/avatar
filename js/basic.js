@@ -145,14 +145,14 @@ window.toggleMode = () => {
     
     if (isTeachingMode) {
         modeText.textContent = '🎓 Teaching Mode';
-        chatSection.style.display = 'none';
-        teachingSection.style.display = 'block';
+    if (chatSection) chatSection.style.display = 'none';
+    if (teachingSection) teachingSection.classList.remove('hidden');
         // Load course catalog when entering teaching mode
         window.loadCourseCatalog();
     } else {
         modeText.textContent = '💬 Chat Mode';
-        chatSection.style.display = 'block';
-        teachingSection.style.display = 'none';
+    if (chatSection) chatSection.style.display = 'block';
+    if (teachingSection) teachingSection.classList.add('hidden');
     // Re-enable chat input when leaving course mode
     const askAIButton = document.getElementById('askAI');
     if (askAIButton) askAIButton.disabled = false;
@@ -190,7 +190,7 @@ window.loadCourseCatalog = async () => {
         }
         
         const htmlContent = courses.map(course => `
-            <div class="course-card" onclick="window.selectCourse('${course.id}')">
+            <div class="course-card" data-course-id="${course.id}" onclick="window.selectCourse('${course.id}', this)">
                 <h4>${course.title}</h4>
                 <div class="course-level ${course.level}">${course.level}</div>
                 <div class="course-duration">⏱️ ${course.duration}</div>
@@ -210,14 +210,17 @@ window.loadCourseCatalog = async () => {
 };
 
 // Select a course
-window.selectCourse = (courseId) => {
+window.selectCourse = (courseId, el) => {
     selectedCourseId = courseId;
     
     // Update visual selection
-    document.querySelectorAll('.course-card').forEach(card => {
-        card.classList.remove('selected');
-    });
-    event.target.closest('.course-card').classList.add('selected');
+    document.querySelectorAll('.course-card').forEach(card => card.classList.remove('selected'));
+    if (el && el.classList) {
+        el.classList.add('selected');
+    } else {
+        const card = document.querySelector(`.course-card[data-course-id='${courseId}']`);
+        if (card) card.classList.add('selected');
+    }
     
     // Show teaching controls
     document.getElementById('courseSelection').style.display = 'none';
@@ -1006,8 +1009,8 @@ window.askAI = async () => {
         // Add user message to chat history
         window.addToChatHistory(message, true);
         
-        btn.disabled = true
-        document.getElementById('stopSpeaking').disabled = false
+    btn.disabled = true
+    { const sb = document.getElementById('stopPlayback'); if (sb) sb.disabled = false; }
         input.value = ''; // Clear input
 
         // Use Corrective RAG by default; fallback to RAG tradicional
@@ -1051,7 +1054,7 @@ window.askAI = async () => {
     } finally {
         const btn = document.getElementById('askAI')
     if (btn) btn.disabled = false
-        document.getElementById('stopSpeaking').disabled = true
+        { const sb2 = document.getElementById('stopPlayback'); if (sb2) sb2.disabled = true; }
     }
 }
 
