@@ -6,40 +6,97 @@ var avatarSynthesizer
 var peerConnection
 var k = false
 var previousAnimationFrameTimestamp = 0;
-// Helpers for gesture placeholders used by buildSsml
-function chooseGesture(options) {
-    try {
-        const idx = Math.floor(Math.random() * options.length);
-        return options[idx];
-    } catch { return null; }
+var chatHistory = [];
+var isAdvancing = false;
+var isSpeaking = false;
+var currentSpeechKind = 'idle';
+var resumeLessonAfterAnswer = false;
+var lastSpokenSsml = '';
+var hybridCancel = { cancel: false };
+var teachingBatchCancel = { cancel: false };
+
+// NEW: Teaching mode state
+var isTeachingMode = false;
+var selectedCourseId = null;
+var teachingState = {
+    isActive: false,
+    currentTopic: '',
+    currentSubtask: '',
+    progress: { topicIndex: 0, subtaskIndex: 0, totalTopics: 0, totalSubtasks: 0 },
+    currentLessonContent: '',
+    lessonParagraphs: [],
+    lessonIndex: 0,
+    lessonActive: false
+};
+
+// Logger
+const log = msg => {
+    document.getElementById('logging').innerHTML += msg + '<br>'
 }
 
+// ============ Gesture Analyzer (SSML bookmark friendly) ============
+// Supported gesture samples by character:style (subset; extend as needed)
+const SUPPORTED_GESTURES = {
+    'lisa:casual-sitting': new Set(['wave-left-1','wave-left-2','thumbsup-left-1','show-front-1','show-left-1','show-right-1','point-left-1','point-right-1','numeric1-left-1']),
+    'lisa:graceful-sitting': new Set(['wave-left-1','wave-left-2','thumbsup-left','show-left-1','show-right-1']),
+    'lori:graceful': new Set(['hello','thanks','nod','applaud','show-left','show-right']),
+    'lori:casual': new Set(['hello','thanks','come-on','good']),
+    'meg:formal': new Set(['say-hi','thanks','applaud','number-one','slide-from-left-to-right']),
+    'max:business': new Set(['say-hi','thanks','number-one','front-right'])
+}
+
+function currentAvatarKey() {
+    try {
+        const ch = (document.getElementById('talkingAvatarCharacter')?.value || '').toLowerCase();
+        const st = (document.getElementById('talkingAvatarStyle')?.value || '').toLowerCase();
+        return `${ch}:${st}`;
+    } catch { return 'lisa:casual-sitting'; }
+}
+
+function chooseGesture(preferredList) {
+    const key = currentAvatarKey();
+    const supported = SUPPORTED_GESTURES[key];
+    if (!supported) return null;
+    for (const g of preferredList) {
+        if (supported.has(g)) return g;
+    }
+    return null;
+}
+
+// Insert lightweight gesture placeholders into text. Placeholders: <<gesture.NAME>>
 function insertGesturePlaceholders(text) {
-    if (!text) return '';
-    let used = 0;
-    const paragraphs = String(text).split(/\n\n+/);
+    if (!text) return text;
+    // Avoid overuse: limit per paragraph
+    const paragraphs = (text || '').split(/\n\n+/);
     const processed = paragraphs.map(p => {
+        let used = 0;
         let out = p;
+        // Greetings
         if (/(?:\b(olá|oi|hello|bem[- ]?vindo|bem[- ]?vindos)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['wave-left-1','hello','say-hi']);
             if (g) { out = out.replace(/\b(olá|oi|hello|bem[- ]?vindo|bem[- ]?vindos)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
+        // Thanks
         if (/(?:\b(obrigado|obrigada|thanks|valeu)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['thanks','applaud','thumbsup-left-1']);
             if (g) { out = out.replace(/\b(obrigado|obrigada|thanks|valeu)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
+        // Emphasis words
         if (/(?:\b(atenção|importante)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['show-front-1','front-right']);
             if (g) { out = out.replace(/\b(atenção|importante)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
+        // Enumerations: "primeiro", "1." → number one gesture
         if (/(^|\s)(1\.|1º|primeiro)\b/i.test(out) && used < 2) {
             const g = chooseGesture(['numeric1-left-1','number-one']);
             if (g) { out = out.replace(/(^|\s)(1\.|1º|primeiro)\b/i, (m, sp) => `${sp}${m.trim()} <<gesture.${g}>>`); used++; }
         }
+        // Pointing when saying "veja" / "olhe"
         if (/(?:\b(veja|olhe)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['point-left-1','show-left-1','show-right-1']);
             if (g) { out = out.replace(/\b(veja|olhe)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
+        // Affirmative cue → nod
         if (/(?:\b(certo\?|ok\?|vamos lá\?)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['nod']);
             if (g) { out = out.replace(/\b(certo\?|ok\?|vamos lá\?)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
@@ -145,14 +202,14 @@ window.toggleMode = () => {
     
     if (isTeachingMode) {
         modeText.textContent = '🎓 Teaching Mode';
-    if (chatSection) chatSection.style.display = 'none';
-    if (teachingSection) teachingSection.classList.remove('hidden');
+        chatSection.style.display = 'none';
+        teachingSection.style.display = 'block';
         // Load course catalog when entering teaching mode
         window.loadCourseCatalog();
     } else {
         modeText.textContent = '💬 Chat Mode';
-    if (chatSection) chatSection.style.display = 'block';
-    if (teachingSection) teachingSection.classList.add('hidden');
+        chatSection.style.display = 'block';
+        teachingSection.style.display = 'none';
     // Re-enable chat input when leaving course mode
     const askAIButton = document.getElementById('askAI');
     if (askAIButton) askAIButton.disabled = false;
@@ -190,7 +247,7 @@ window.loadCourseCatalog = async () => {
         }
         
         const htmlContent = courses.map(course => `
-            <div class="course-card" data-course-id="${course.id}" onclick="window.selectCourse('${course.id}', this)">
+            <div class="course-card" onclick="window.selectCourse('${course.id}')">
                 <h4>${course.title}</h4>
                 <div class="course-level ${course.level}">${course.level}</div>
                 <div class="course-duration">⏱️ ${course.duration}</div>
@@ -210,17 +267,14 @@ window.loadCourseCatalog = async () => {
 };
 
 // Select a course
-window.selectCourse = (courseId, el) => {
+window.selectCourse = (courseId) => {
     selectedCourseId = courseId;
     
     // Update visual selection
-    document.querySelectorAll('.course-card').forEach(card => card.classList.remove('selected'));
-    if (el && el.classList) {
-        el.classList.add('selected');
-    } else {
-        const card = document.querySelector(`.course-card[data-course-id='${courseId}']`);
-        if (card) card.classList.add('selected');
-    }
+    document.querySelectorAll('.course-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    event.target.closest('.course-card').classList.add('selected');
     
     // Show teaching controls
     document.getElementById('courseSelection').style.display = 'none';
@@ -240,8 +294,8 @@ window.showCourseSelection = () => {
     
     // Reset controls
     document.getElementById('startTeaching').disabled = true;
-    const pauseBtn = document.getElementById('pauseTeaching'); if (pauseBtn) pauseBtn.style.display = 'none';
-    const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = true;
+    document.getElementById('pauseTeaching').disabled = true;
+    document.getElementById('nextLesson').disabled = true;
     document.getElementById('stopTeaching').disabled = true;
     document.getElementById('backToCourses').disabled = true;
 };
@@ -272,10 +326,10 @@ window.startTeaching = async () => {
         teachingState.isActive = true;
         
         // Update UI
-    document.getElementById('startTeaching').disabled = true;
-    const pauseBtn = document.getElementById('pauseTeaching'); if (pauseBtn) pauseBtn.style.display = 'none';
-    const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = false;
-    document.getElementById('stopTeaching').disabled = false;
+        document.getElementById('startTeaching').disabled = true;
+        document.getElementById('pauseTeaching').disabled = false;
+        document.getElementById('nextLesson').disabled = false;
+        document.getElementById('stopTeaching').disabled = false;
         document.getElementById('backToCourses').disabled = false;
         document.getElementById('lessonProgress').classList.remove('hidden');
         
@@ -307,8 +361,8 @@ window.stopTeaching = async () => {
         } catch {}
         // Update UI
         document.getElementById('startTeaching').disabled = false;
-    const pauseBtn2 = document.getElementById('pauseTeaching'); if (pauseBtn2) pauseBtn2.style.display = 'none';
-    const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = true;
+        document.getElementById('pauseTeaching').disabled = true;
+        document.getElementById('nextLesson').disabled = true;
         document.getElementById('stopTeaching').disabled = true;
         document.getElementById('backToCourses').disabled = true;
         document.getElementById('lessonProgress').classList.add('hidden');
@@ -325,10 +379,19 @@ window.stopTeaching = async () => {
 };
 
 // Pause teaching (stop avatar speaking)
-// Pause disabled in simplified controls; use stopPlayback instead
 window.pauseTeaching = () => {
-    const btn = document.getElementById('pauseTeaching'); if (btn) btn.style.display = 'none';
-    window.stopPlayback();
+    try {
+        if (avatarSynthesizer) {
+            avatarSynthesizer.stopSpeakingAsync();
+            log('⏸️ Avatar pausado');
+        }
+        document.getElementById('pauseTeaching').disabled = true;
+        setTimeout(() => {
+            document.getElementById('pauseTeaching').disabled = false;
+        }, 2000);
+    } catch (err) {
+        log('Erro ao pausar: ' + err.message);
+    }
 };
 
 // Show pending questions at end of session
@@ -441,8 +504,8 @@ window.playLessonAsBatch = async (lessonText) => {
     const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
     const payload = { region, ssml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' };
 
-    const stopBtn1 = document.getElementById('stopPlayback');
-    if (stopBtn1) stopBtn1.disabled = false;
+    const nextBtn = document.getElementById('nextLesson');
+    if (nextBtn) nextBtn.disabled = true;
     log('🎬 Gerando vídeo do curso com gestos...');
 
     const submit = await fetch('/api/avatar/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -477,7 +540,10 @@ window.playLessonAsBatch = async (lessonText) => {
     batchVideo.src = resultUrl;
     batchVideo.hidden = false;
     await batchVideo.play().catch(() => {});
-    batchVideo.onended = () => { window.nextLesson(); };
+    batchVideo.onended = () => {
+        const btn = document.getElementById('nextLesson');
+        if (btn) btn.disabled = false;
+    };
 }
 
 // Play lesson as multiple short batch segments for lower latency
@@ -519,8 +585,8 @@ window.playLessonAsBatchSegments = async (lessonText) => {
         if (buf.length) segments.push(buf.join(' '));
     }
 
-    const stopBtn2 = document.getElementById('stopPlayback');
-    if (stopBtn2) stopBtn2.disabled = false;
+    const nextBtn = document.getElementById('nextLesson');
+    if (nextBtn) nextBtn.disabled = true;
     log(`🎬 Gerando ${segments.length} segmentos do curso com gestos...`);
 
     for (let i = 0; i < segments.length; i++) {
@@ -566,8 +632,7 @@ window.playLessonAsBatchSegments = async (lessonText) => {
         });
     }
 
-    // auto-advance when all segments are done
-    window.nextLesson();
+    if (nextBtn) nextBtn.disabled = false;
 }
 
 // Make avatar speak lesson content
@@ -712,7 +777,7 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
         const hybridOn = document.getElementById('hybridGesturesMode')?.checked;
         if (hybridOn) {
             // Hybrid mode: submit to batch and play clip as near-live
-            const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = false;
+            document.getElementById('stopSpeaking').disabled = false;
             document.getElementById('audio').muted = false;
             try {
                 const region = document.getElementById('region')?.value || '';
@@ -749,21 +814,21 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
                     batchVideo.hidden = false;
                     try { await batchVideo.play(); } catch {}
                 }
-                const stopBtn2 = document.getElementById('stopPlayback'); if (stopBtn2) stopBtn2.disabled = true;
+                document.getElementById('stopSpeaking').disabled = true;
             } catch (hybridErr) {
                 log('ℹ️ Hybrid indisponível, falando em tempo real: ' + (hybridErr?.message || hybridErr));
                 // Fallback imediato para tempo real TTS
                 document.getElementById('audio').muted = false;
-                const stopBtn3 = document.getElementById('stopPlayback'); if (stopBtn3) stopBtn3.disabled = false;
+                document.getElementById('stopSpeaking').disabled = false;
                 await avatarSynthesizer.speakSsmlAsync(spokenSsml);
-                const stopBtn4 = document.getElementById('stopPlayback'); if (stopBtn4) stopBtn4.disabled = true;
+                document.getElementById('stopSpeaking').disabled = true;
             }
         } else {
             // Real-time default
             document.getElementById('audio').muted = false;
-            const stopBtn5 = document.getElementById('stopPlayback'); if (stopBtn5) stopBtn5.disabled = false;
+            document.getElementById('stopSpeaking').disabled = false;
             await avatarSynthesizer.speakSsmlAsync(spokenSsml);
-            const stopBtn6 = document.getElementById('stopPlayback'); if (stopBtn6) stopBtn6.disabled = true;
+            document.getElementById('stopSpeaking').disabled = true;
         }
         
     } catch (err) {
@@ -776,8 +841,8 @@ window.nextLesson = async () => {
     try {
         if (isAdvancing) return;
         isAdvancing = true;
-    const stopBtn = document.getElementById('stopPlayback');
-    if (stopBtn) stopBtn.disabled = true;
+        const nextBtn = document.getElementById('nextLesson');
+        if (nextBtn) nextBtn.disabled = true;
 
         // Ensure we stop any current speech BEFORE moving to the next lesson
         try { teachingBatchCancel.cancel = true; } catch {}
@@ -813,28 +878,9 @@ window.nextLesson = async () => {
     }
     finally {
         isAdvancing = false;
-        const stopBtn3 = document.getElementById('stopPlayback');
-        if (stopBtn3) stopBtn3.disabled = false;
+        const nextBtn = document.getElementById('nextLesson');
+        if (nextBtn) nextBtn.disabled = false;
     }
-
-// Unified stop for avatar playback and generation (chat or teaching)
-window.stopPlayback = async () => {
-    try {
-        // cancel any ongoing batch generation/playback
-        try { teachingBatchCancel.cancel = true; } catch {}
-        try { hybridCancel.cancel = true; } catch {}
-        try {
-            const batchVideo = document.getElementById('batchVideo');
-            if (batchVideo) { batchVideo.pause(); batchVideo.currentTime = 0; }
-        } catch {}
-        try { if (avatarSynthesizer) await avatarSynthesizer.stopSpeakingAsync(); } catch {}
-        isSpeaking = false;
-        log('⏹️ Reprodução parada.');
-        const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = true;
-    } catch (err) {
-        log('Erro ao parar reprodução: ' + err.message);
-    }
-};
 };
 
 // Teaching chat is disabled; no question input or history.
@@ -953,10 +999,13 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
 
         if (peerConnection.iceConnectionState === 'connected') {
             document.getElementById('stopSession').disabled = false
+            document.getElementById('speak').disabled = false
             document.getElementById('configuration').hidden = true
         }
 
         if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
+            document.getElementById('speak').disabled = true
+            document.getElementById('stopSpeaking').disabled = true
             document.getElementById('stopSession').disabled = true
             document.getElementById('startSession').disabled = false
             document.getElementById('configuration').hidden = false
@@ -1009,8 +1058,8 @@ window.askAI = async () => {
         // Add user message to chat history
         window.addToChatHistory(message, true);
         
-    btn.disabled = true
-    { const sb = document.getElementById('stopPlayback'); if (sb) sb.disabled = false; }
+        btn.disabled = true
+        document.getElementById('stopSpeaking').disabled = false
         input.value = ''; // Clear input
 
         // Use Corrective RAG by default; fallback to RAG tradicional
@@ -1054,7 +1103,7 @@ window.askAI = async () => {
     } finally {
         const btn = document.getElementById('askAI')
     if (btn) btn.disabled = false
-        { const sb2 = document.getElementById('stopPlayback'); if (sb2) sb2.disabled = true; }
+        document.getElementById('stopSpeaking').disabled = true
     }
 }
 

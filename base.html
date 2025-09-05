@@ -108,8 +108,12 @@
   <div class="config-section">
     <h3>🎯 Controls</h3>
     <div class="button-group">
-  <button id="startSession" onclick="window.startSession()" class="btn btn-primary">🚀 Start Session</button>
-  <button id="stopSession" onclick="window.stopSession()" disabled class="btn btn-danger">🛑 Stop Session</button>
+      <button id="startSession" onclick="window.startSession()" class="btn btn-primary">🚀 Start Session</button>
+      <button id="speak" onclick="window.speak()" disabled class="btn btn-secondary">🗣️ Speak</button>
+      <button id="stopSpeaking" onclick="window.stopSpeaking()" disabled class="btn btn-warning">⏹️ Stop Speaking</button>
+  <button id="copySSML" onclick="window.copyLastSsmlToClipboard()" class="btn btn-small">📋 Copiar SSML</button>
+  <button id="generateBatch" onclick="window.generateBatchClip()" class="btn btn-secondary">🎬 Gerar clipe com gestos</button>
+      <button id="stopSession" onclick="window.stopSession()" disabled class="btn btn-danger">🛑 Stop Session</button>
     </div>
   </div>
 </div>
@@ -146,7 +150,7 @@
     </div>
 
     <!-- NEW: Teaching Mode Section -->
-  <div class="teaching-section hidden" id="teachingSection">
+    <div class="teaching-section" id="teachingSection" style="display: none;">
       <div class="teaching-header">
         <h3>🎓 Modo Ensino</h3>
         <div class="course-selection" id="courseSelection">
@@ -157,13 +161,14 @@
         </div>
         <div class="teaching-controls hidden" id="teachingControls">
           <button id="startTeaching" onclick="window.startTeaching()" class="btn btn-success">▶️ Iniciar Curso</button>
-          <button id="stopPlayback" onclick="window.stopPlayback()" disabled class="btn btn-secondary">⏹️ Parar</button>
+          <button id="pauseTeaching" onclick="window.pauseTeaching()" disabled class="btn btn-warning">⏸️ Pausar</button>
+          <button id="nextLesson" onclick="window.nextLesson()" disabled class="btn btn-primary">⏭️ Próximo Tópico</button>
           <button id="stopTeaching" onclick="window.stopTeaching()" disabled class="btn btn-danger">⏹️ Finalizar</button>
           <button id="backToCourses" onclick="window.showCourseSelection()" disabled class="btn btn-secondary">🔙 Voltar aos Cursos</button>
         </div>
       </div>
       
-  <div class="lesson-progress hidden" id="lessonProgress">
+      <div class="lesson-progress" id="lessonProgress" style="display: none;">
         <div class="progress-info">
           <span id="currentTopic">Carregando...</span>
           <span id="progressText">0/0</span>
@@ -173,7 +178,7 @@
         </div>
       </div>
       
-  <div id="lessonContent" class="lesson-content hidden"></div>
+      <div id="lessonContent" class="lesson-content" style="display: none;"></div>
       
       
     </div>
