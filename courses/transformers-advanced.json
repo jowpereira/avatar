@@ -1,0 +1,39 @@
+{
+  "id": "transformers-advanced",
+  "title": "Transformers e LLMs",
+  "description": "Arquitetura Transformer, attention mechanisms e grandes modelos de linguagem",
+  "level": "avançado", 
+  "duration": "6 horas",
+  "topics": [
+    {
+      "id": "t1",
+      "title": "Arquitetura Transformer",
+      "description": "Self-attention, multi-head attention e positional encoding",
+      "subtasks": [
+        { "id": "t1s1", "title": "Self-Attention Mechanism" },
+        { "id": "t1s2", "title": "Multi-Head Attention" },
+        { "id": "t1s3", "title": "Positional Encoding" }
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "BERT e GPT",
+      "description": "Modelos bidirecionais e autoregressivos",
+      "subtasks": [
+        { "id": "t2s1", "title": "BERT: Bidirectional Encoding" },
+        { "id": "t2s2", "title": "GPT: Autoregressive Generation" },
+        { "id": "t2s3", "title": "Fine-tuning e Transfer Learning" }
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "LLMs Modernos",
+      "description": "GPT-4, PaLM, Claude e técnicas avançadas",
+      "subtasks": [
+        { "id": "t3s1", "title": "Scaling Laws" },
+        { "id": "t3s2", "title": "Instruction Tuning" },
+        { "id": "t3s3", "title": "RLHF e Alignment" }
+      ]
+    }
+  ]
+}

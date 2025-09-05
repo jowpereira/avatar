@@ -1,0 +1,29 @@
+{
+  "id": "ml-intro",
+  "title": "Introdução a Machine Learning",
+  "description": "Fundamentos de ML, algoritmos básicos e pipeline de desenvolvimento",
+  "level": "iniciante",
+  "duration": "2 horas",
+  "topics": [
+    {
+      "id": "t1",
+      "title": "Fundamentos de ML",
+      "description": "Conceitos básicos e tipos de aprendizado",
+      "subtasks": [
+        { "id": "t1s1", "title": "O que é Machine Learning" },
+        { "id": "t1s2", "title": "Tipos de Aprendizado" },
+        { "id": "t1s3", "title": "Pipeline de ML" }
+      ]
+    },
+    {
+      "id": "t2", 
+      "title": "Algoritmos Básicos",
+      "description": "Regressão linear, classificação e clustering",
+      "subtasks": [
+        { "id": "t2s1", "title": "Regressão Linear" },
+        { "id": "t2s2", "title": "Árvores de Decisão" },
+        { "id": "t2s3", "title": "K-means Clustering" }
+      ]
+    }
+  ]
+}

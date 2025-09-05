@@ -1,0 +1,28 @@
+{
+  "courses": [
+    {
+      "id": "ml-intro",
+      "title": "Introdução a Machine Learning",
+      "description": "Fundamentos de ML, algoritmos básicos e pipeline de desenvolvimento",
+      "level": "iniciante",
+      "duration": "2 horas",
+      "file": "ml-intro.json"
+    },
+    {
+      "id": "deep-learning", 
+      "title": "Deep Learning Fundamentals",
+      "description": "Redes neurais profundas, CNN, RNN e arquiteturas modernas",
+      "level": "intermediário",
+      "duration": "4 horas",
+      "file": "deep-learning.json"
+    },
+    {
+      "id": "transformers-advanced",
+      "title": "Transformers e LLMs", 
+      "description": "Arquitetura Transformer, attention mechanisms e grandes modelos de linguagem",
+      "level": "avançado",
+      "duration": "6 horas",
+      "file": "transformers-advanced.json"
+    }
+  ]
+}

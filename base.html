@@ -153,11 +153,18 @@
     <div class="teaching-section" id="teachingSection" style="display: none;">
       <div class="teaching-header">
         <h3>🎓 Modo Ensino</h3>
-        <div class="teaching-controls">
+        <div class="course-selection" id="courseSelection">
+          <h4>Selecione um Curso:</h4>
+          <div id="courseGrid" class="course-grid">
+            <!-- Courses will be loaded here -->
+          </div>
+        </div>
+        <div class="teaching-controls" id="teachingControls" style="display: none;">
           <button id="startTeaching" onclick="window.startTeaching()" class="btn btn-success">▶️ Iniciar Curso</button>
           <button id="pauseTeaching" onclick="window.pauseTeaching()" disabled class="btn btn-warning">⏸️ Pausar</button>
           <button id="nextLesson" onclick="window.nextLesson()" disabled class="btn btn-primary">⏭️ Próximo Tópico</button>
           <button id="stopTeaching" onclick="window.stopTeaching()" disabled class="btn btn-danger">⏹️ Finalizar</button>
+          <button id="backToCourses" onclick="window.showCourseSelection()" disabled class="btn btn-secondary">🔙 Voltar aos Cursos</button>
         </div>
       </div>
       

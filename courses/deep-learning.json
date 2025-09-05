@@ -1,0 +1,39 @@
+{
+  "id": "deep-learning",
+  "title": "Deep Learning Fundamentals", 
+  "description": "Redes neurais profundas, CNN, RNN e arquiteturas modernas",
+  "level": "intermediário",
+  "duration": "4 horas",
+  "topics": [
+    {
+      "id": "t1",
+      "title": "Redes Neurais Básicas",
+      "description": "Perceptron, multicamadas e backpropagation",
+      "subtasks": [
+        { "id": "t1s1", "title": "Perceptron e MLP" },
+        { "id": "t1s2", "title": "Funções de Ativação" },
+        { "id": "t1s3", "title": "Backpropagation" }
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Redes Convolucionais (CNN)",
+      "description": "Convoluções, pooling e arquiteturas",
+      "subtasks": [
+        { "id": "t2s1", "title": "Operação de Convolução" },
+        { "id": "t2s2", "title": "Pooling e Normalização" },
+        { "id": "t2s3", "title": "Arquiteturas CNN" }
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Redes Recorrentes (RNN)",
+      "description": "LSTM, GRU e processamento sequencial",
+      "subtasks": [
+        { "id": "t3s1", "title": "RNN Básicas" },
+        { "id": "t3s2", "title": "LSTM e GRU" },
+        { "id": "t3s3", "title": "Aplicações Sequenciais" }
+      ]
+    }
+  ]
+}

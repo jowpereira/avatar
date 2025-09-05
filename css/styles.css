@@ -1057,3 +1057,79 @@ input:checked + .slider:before {
     position: relative;
     margin-top: 5px;
 }
+
+/* Course Grid Styles */
+.course-selection {
+    margin: 1rem 0;
+}
+
+.course-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.course-card {
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    padding: 1.5rem;
+    background: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.course-card:hover {
+    border-color: #007bff;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.course-card.selected {
+    border-color: #007bff;
+    background: #f8f9fa;
+}
+
+.course-card h4 {
+    margin: 0 0 0.5rem 0;
+    color: #333;
+    font-size: 1.1rem;
+}
+
+.course-card .course-level {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.course-level.iniciante { background: #d4edda; color: #155724; }
+.course-level.intermediário { background: #fff3cd; color: #856404; }
+.course-level.avançado { background: #f8d7da; color: #721c24; }
+
+.course-card .course-duration {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 0.5rem;
+}
+
+.course-card .course-description {
+    font-size: 0.9rem;
+    color: #555;
+    line-height: 1.4;
+}
+
+.teaching-controls.hidden {
+    display: none;
+}
+
+.lesson-progress.hidden {
+    display: none;
+}
+
+.lesson-content.hidden {
+    display: none;
+}

@@ -17,6 +17,7 @@ var teachingBatchCancel = { cancel: false };
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
+var selectedCourseId = null;
 var teachingState = {
     isActive: false,
     currentTopic: '',
@@ -203,6 +204,8 @@ window.toggleMode = () => {
         modeText.textContent = '🎓 Teaching Mode';
         chatSection.style.display = 'none';
         teachingSection.style.display = 'block';
+        // Load course catalog when entering teaching mode
+        window.loadCourseCatalog();
     } else {
         modeText.textContent = '💬 Chat Mode';
         chatSection.style.display = 'block';
@@ -223,6 +226,67 @@ function getParagraphsFromContent(content) {
     return plain.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
 }
 
+// Load course catalog
+window.loadCourseCatalog = async () => {
+    try {
+        const resp = await fetch('/api/courses');
+        if (!resp.ok) throw new Error('Failed to load courses');
+        
+        const data = await resp.json();
+        const courses = data.courses || [];
+        
+        const courseGrid = document.getElementById('courseGrid');
+        if (!courseGrid) return;
+        
+        courseGrid.innerHTML = courses.map(course => `
+            <div class="course-card" onclick="window.selectCourse('${course.id}')">
+                <h4>${course.title}</h4>
+                <div class="course-level ${course.level}">${course.level}</div>
+                <div class="course-duration">⏱️ ${course.duration}</div>
+                <div class="course-description">${course.description}</div>
+            </div>
+        `).join('');
+        
+        log(`📚 Carregados ${courses.length} cursos disponíveis`);
+    } catch (err) {
+        log('❌ Erro ao carregar catálogo de cursos: ' + err.message);
+    }
+};
+
+// Select a course
+window.selectCourse = (courseId) => {
+    selectedCourseId = courseId;
+    
+    // Update visual selection
+    document.querySelectorAll('.course-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    event.target.closest('.course-card').classList.add('selected');
+    
+    // Show teaching controls
+    document.getElementById('courseSelection').style.display = 'none';
+    document.getElementById('teachingControls').classList.remove('hidden');
+    document.getElementById('startTeaching').disabled = false;
+    
+    log(`📖 Curso selecionado: ${courseId}`);
+};
+
+// Show course selection screen
+window.showCourseSelection = () => {
+    selectedCourseId = null;
+    document.getElementById('courseSelection').style.display = 'block';
+    document.getElementById('teachingControls').classList.add('hidden');
+    document.getElementById('lessonProgress').classList.add('hidden');
+    document.getElementById('lessonContent').classList.add('hidden');
+    
+    // Reset controls
+    document.getElementById('startTeaching').disabled = true;
+    document.getElementById('pauseTeaching').disabled = true;
+    document.getElementById('nextLesson').disabled = true;
+    document.getElementById('stopTeaching').disabled = true;
+    document.getElementById('backToCourses').disabled = true;
+};
+
 // Start teaching session
 window.startTeaching = async () => {
     try {
@@ -233,7 +297,16 @@ window.startTeaching = async () => {
             return;
         }
         
-        const resp = await fetch('/api/teaching/start', { method: 'POST' });
+        if (!selectedCourseId) {
+            log('⚠️ Selecione um curso primeiro!');
+            return;
+        }
+        
+        const resp = await fetch('/api/teaching/start', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ courseId: selectedCourseId })
+        });
         if (!resp.ok) throw new Error('Failed to start teaching');
         
         const data = await resp.json();
@@ -244,7 +317,8 @@ window.startTeaching = async () => {
         document.getElementById('pauseTeaching').disabled = false;
         document.getElementById('nextLesson').disabled = false;
         document.getElementById('stopTeaching').disabled = false;
-    document.getElementById('lessonProgress').style.display = 'block';
+        document.getElementById('backToCourses').disabled = false;
+        document.getElementById('lessonProgress').classList.remove('hidden');
         
         // Load first lesson
         await window.loadCurrentLesson();
@@ -277,8 +351,12 @@ window.stopTeaching = async () => {
         document.getElementById('pauseTeaching').disabled = true;
         document.getElementById('nextLesson').disabled = true;
         document.getElementById('stopTeaching').disabled = true;
-        document.getElementById('lessonProgress').style.display = 'none';
-        document.getElementById('lessonContent').style.display = 'none';
+        document.getElementById('backToCourses').disabled = true;
+        document.getElementById('lessonProgress').classList.add('hidden');
+        document.getElementById('lessonContent').classList.add('hidden');
+        
+        // Show course selection again
+        window.showCourseSelection();
         
         
         log('🛑 Sessão de ensino finalizada!');
@@ -380,7 +458,7 @@ window.loadCurrentLesson = async () => {
             const lessonContent = document.getElementById('lessonContent');
             if (lessonContent) {
                 lessonContent.innerHTML = '';
-                lessonContent.style.display = 'none';
+                lessonContent.classList.add('hidden');
             }
             
             // Prefer chunked batch video with gestures; fallback to real-time paragraph playback

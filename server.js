@@ -27,14 +27,38 @@ const PORT = process.env.PORT || 3000
 app.use(bodyParser.json())
 app.use(express.static(path.join(__dirname)))
 
-// Load course content - moved to global scope
-var courseContent = []
+// Load course catalog and content - moved to global scope
+var courseCatalog = []
+var courseContent = {} // Object to store loaded courses by ID
+
 try {
-  const courseData = readFileSync(path.join(__dirname, 'course.json'), 'utf8')
-  courseContent = JSON.parse(courseData)
-  console.log(`Loaded ${courseContent.length} course topics`)
+  const catalogData = readFileSync(path.join(__dirname, 'courses', 'index.json'), 'utf8')
+  courseCatalog = JSON.parse(catalogData).courses
+  console.log(`Loaded ${courseCatalog.length} courses in catalog`)
 } catch (err) {
-  console.warn('Course content not found, using empty array:', err.message)
+  console.warn('Course catalog not found, using empty array:', err.message)
+}
+
+// Function to load specific course content
+function loadCourseContent(courseId) {
+  if (courseContent[courseId]) {
+    return courseContent[courseId]
+  }
+  
+  const course = courseCatalog.find(c => c.id === courseId)
+  if (!course) {
+    throw new Error(`Course ${courseId} not found in catalog`)
+  }
+  
+  try {
+    const courseData = readFileSync(path.join(__dirname, 'courses', course.file), 'utf8')
+    const content = JSON.parse(courseData)
+    courseContent[courseId] = content.topics || [] // Store topics for teaching
+    console.log(`Loaded course ${courseId} with ${courseContent[courseId].length} topics`)
+    return courseContent[courseId]
+  } catch (err) {
+    throw new Error(`Failed to load course ${courseId}: ${err.message}`)
+  }
 }
 
 const llm = new ChatOpenAI({
@@ -54,6 +78,7 @@ const teachingLLM = new ChatOpenAI({
 
 // Global teaching state
 let teachingState = {
+  currentCourseId: null,
   currentTopicIndex: 0,
   currentSubtaskIndex: 0,
   isTeaching: false,
@@ -142,13 +167,24 @@ app.post('/api/chat-crag', async (req, res) => {
 
 // ============ NEW TEACHING ENDPOINTS ============
 
+// Get course catalog
+app.get('/api/courses', (req, res) => {
+  res.json({ courses: courseCatalog })
+})
+
 // Get course structure
 app.get('/api/course', (req, res) => {
-  if (!courseContent || courseContent.length === 0) {
-    return res.status(500).json({ error: 'Course content not available' })
+  const courseId = req.query.id || teachingState.currentCourseId
+  if (!courseId) {
+    return res.status(400).json({ error: 'Course ID required' })
   }
-  console.log('Course request - courseContent length:', courseContent.length)
-  res.json(courseContent)
+  
+  try {
+    const content = loadCourseContent(courseId)
+    res.json(content)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // Get current teaching state
@@ -158,16 +194,28 @@ app.get('/api/teaching/state', (req, res) => {
 
 // Start teaching session
 app.post('/api/teaching/start', (req, res) => {
-  teachingState.isTeaching = true
-  teachingState.currentTopicIndex = 0
-  teachingState.currentSubtaskIndex = 0
-  teachingState.pendingQuestions = []
-  res.json({ success: true, state: teachingState })
+  const { courseId } = req.body
+  if (!courseId) {
+    return res.status(400).json({ error: 'Course ID required' })
+  }
+  
+  try {
+    loadCourseContent(courseId) // Validate course exists
+    teachingState.isTeaching = true
+    teachingState.currentCourseId = courseId
+    teachingState.currentTopicIndex = 0
+    teachingState.currentSubtaskIndex = 0
+    teachingState.pendingQuestions = []
+    res.json({ success: true, state: teachingState })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // Stop teaching session
 app.post('/api/teaching/stop', (req, res) => {
   teachingState.isTeaching = false
+  teachingState.currentCourseId = null
   res.json({ success: true, state: teachingState })
 })
 
@@ -175,18 +223,17 @@ app.post('/api/teaching/stop', (req, res) => {
 app.post('/api/teaching/lesson', async (req, res) => {
   try {
     console.log('Lesson request - teachingState:', teachingState)
-    console.log('courseContent available:', !!courseContent)
-    console.log('courseContent length:', courseContent?.length || 0)
     
-    if (!teachingState.isTeaching) {
-      return res.status(400).json({ error: 'Teaching session not active' })
+    if (!teachingState.isTeaching || !teachingState.currentCourseId) {
+      return res.status(400).json({ error: 'Teaching session not active or no course selected' })
     }
 
-    if (!courseContent || courseContent.length === 0) {
+    const currentCourseContent = loadCourseContent(teachingState.currentCourseId)
+    if (!currentCourseContent || currentCourseContent.length === 0) {
       return res.status(500).json({ error: 'Course content not loaded' })
     }
 
-    const currentTopic = courseContent[teachingState.currentTopicIndex]
+    const currentTopic = currentCourseContent[teachingState.currentTopicIndex]
     if (!currentTopic) {
       return res.status(400).json({ error: 'Invalid topic index' })
     }
@@ -218,7 +265,7 @@ Forneça uma explicação clara, objetiva e educativa em português, com exemplo
         progress: {
           topicIndex: teachingState.currentTopicIndex,
           subtaskIndex: teachingState.currentSubtaskIndex,
-          totalTopics: courseContent.length,
+          totalTopics: currentCourseContent.length,
           totalSubtasks: currentTopic.subtasks.length
         }
       }
@@ -231,33 +278,39 @@ Forneça uma explicação clara, objetiva e educativa em português, com exemplo
 
 // Move to next subtask/topic
 app.post('/api/teaching/next', (req, res) => {
-  if (!teachingState.isTeaching) {
+  if (!teachingState.isTeaching || !teachingState.currentCourseId) {
     return res.status(400).json({ error: 'Teaching session not active' })
   }
 
-  if (!courseContent || courseContent.length === 0) {
-    return res.status(500).json({ error: 'Course content not available' })
-  }
+  try {
+    const currentCourseContent = loadCourseContent(teachingState.currentCourseId)
+    if (!currentCourseContent || currentCourseContent.length === 0) {
+      return res.status(500).json({ error: 'Course content not available' })
+    }
 
-  const currentTopic = courseContent[teachingState.currentTopicIndex]
-  if (!currentTopic) {
-    return res.status(400).json({ error: 'Invalid current topic' })
-  }
-  
-  if (teachingState.currentSubtaskIndex < currentTopic.subtasks.length - 1) {
-    // Next subtask in current topic
-    teachingState.currentSubtaskIndex++
-  } else if (teachingState.currentTopicIndex < courseContent.length - 1) {
-    // Next topic
-    teachingState.currentTopicIndex++
-    teachingState.currentSubtaskIndex = 0
-  } else {
-    // Course finished
-    teachingState.isTeaching = false
-    return res.json({ success: true, finished: true, state: teachingState })
-  }
+    const currentTopic = currentCourseContent[teachingState.currentTopicIndex]
+    if (!currentTopic) {
+      return res.status(400).json({ error: 'Invalid current topic' })
+    }
+    
+    if (teachingState.currentSubtaskIndex < currentTopic.subtasks.length - 1) {
+      // Next subtask in current topic
+      teachingState.currentSubtaskIndex++
+    } else if (teachingState.currentTopicIndex < currentCourseContent.length - 1) {
+      // Next topic
+      teachingState.currentTopicIndex++
+      teachingState.currentSubtaskIndex = 0
+    } else {
+      // Course finished
+      teachingState.isTeaching = false
+      teachingState.currentCourseId = null
+      return res.json({ success: true, finished: true, state: teachingState })
+    }
 
-  res.json({ success: true, state: teachingState })
+    res.json({ success: true, state: teachingState })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // Handle questions during teaching
@@ -273,8 +326,9 @@ app.post('/api/teaching/answer-pending', async (req, res) => {
 
     // Optionally filter by current topic
     let pending = teachingState.pendingQuestions
-    if (scope === 'currentTopic') {
-      const topic = courseContent[teachingState.currentTopicIndex]?.title
+    if (scope === 'currentTopic' && teachingState.currentCourseId) {
+      const currentCourseContent = loadCourseContent(teachingState.currentCourseId)
+      const topic = currentCourseContent[teachingState.currentTopicIndex]?.title
       pending = pending.filter(q => q.topic === topic)
       // Remove only the ones answered from the global queue later
     }
@@ -299,8 +353,9 @@ Forneça uma resposta completa, didática e bem estruturada em português. Use e
     }
 
     // Clear pending questions (all or only answered ones if scoped)
-    if (scope === 'currentTopic') {
-      const topic = courseContent[teachingState.currentTopicIndex]?.title
+    if (scope === 'currentTopic' && teachingState.currentCourseId) {
+      const currentCourseContent = loadCourseContent(teachingState.currentCourseId)
+      const topic = currentCourseContent[teachingState.currentTopicIndex]?.title
       teachingState.pendingQuestions = teachingState.pendingQuestions.filter(q => q.topic !== topic)
     } else {
       teachingState.pendingQuestions = []
