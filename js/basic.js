@@ -14,8 +14,6 @@ var resumeLessonAfterAnswer = false;
 var lastSpokenSsml = '';
 var hybridCancel = { cancel: false };
 var teachingBatchCancel = { cancel: false };
-// Default to UDP for WebRTC; set to true to force TURN over TCP if needed (e.g., restricted networks)
-var useTcpForWebRTC = false;
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
