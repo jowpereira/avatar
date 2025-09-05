@@ -228,17 +228,25 @@ function getParagraphsFromContent(content) {
 
 // Load course catalog
 window.loadCourseCatalog = async () => {
+    console.log('🔄 Iniciando carregamento do catálogo de cursos...');
     try {
         const resp = await fetch('/api/courses');
+        console.log('📡 Resposta recebida:', resp.status, resp.statusText);
         if (!resp.ok) throw new Error('Failed to load courses');
         
         const data = await resp.json();
+        console.log('📊 Dados recebidos:', data);
         const courses = data.courses || [];
+        console.log('📚 Cursos extraídos:', courses.length, courses);
         
         const courseGrid = document.getElementById('courseGrid');
-        if (!courseGrid) return;
+        console.log('🎯 Elemento courseGrid encontrado:', !!courseGrid, courseGrid);
+        if (!courseGrid) {
+            console.error('❌ Elemento courseGrid não encontrado!');
+            return;
+        }
         
-        courseGrid.innerHTML = courses.map(course => `
+        const htmlContent = courses.map(course => `
             <div class="course-card" onclick="window.selectCourse('${course.id}')">
                 <h4>${course.title}</h4>
                 <div class="course-level ${course.level}">${course.level}</div>
@@ -247,8 +255,13 @@ window.loadCourseCatalog = async () => {
             </div>
         `).join('');
         
+        console.log('🏗️ HTML gerado:', htmlContent);
+        courseGrid.innerHTML = htmlContent;
+        console.log('✅ innerHTML atualizado. courseGrid agora contém:', courseGrid.innerHTML.length, 'caracteres');
+        
         log(`📚 Carregados ${courses.length} cursos disponíveis`);
     } catch (err) {
+        console.error('❌ Erro detalhado:', err);
         log('❌ Erro ao carregar catálogo de cursos: ' + err.message);
     }
 };
