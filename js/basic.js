@@ -36,6 +36,16 @@ const log = msg => {
     document.getElementById('logging').innerHTML += msg + '<br>'
 }
 
+// Normalize background color for Batch API (maps alpha-hex to supported tokens)
+function normalizeBatchBackgroundColor(bg) {
+    if (!bg) return 'white';
+    const b = String(bg).trim().toLowerCase();
+    if (b === 'transparent') return 'transparent';
+    if (b === '#00ff00ff') return 'transparent'; // our transparent toggle value
+    if (b === '#ffffffff') return 'white';
+    return bg;
+}
+
 // ============ Gesture Analyzer (SSML bookmark friendly) ============
 // Supported gesture samples by character:style (subset; extend as needed)
 const SUPPORTED_GESTURES = {
@@ -503,7 +513,7 @@ window.playLessonAsBatch = async (lessonText) => {
     const region = document.getElementById('region')?.value || '';
     const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
     const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
-    const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+    const backgroundColor = normalizeBatchBackgroundColor(document.getElementById('backgroundColor')?.value || '#FFFFFFFF');
     const payload = { region, ssml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' };
 
     const nextBtn = document.getElementById('nextLesson');
@@ -553,7 +563,7 @@ window.playLessonAsBatchSegments = async (lessonText) => {
     const region = document.getElementById('region')?.value || '';
     const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
     const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
-    const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+    const backgroundColor = normalizeBatchBackgroundColor(document.getElementById('backgroundColor')?.value || '#FFFFFFFF');
     const ttsVoice = document.getElementById('ttsVoice')?.value || '';
     const batchVideo = document.getElementById('batchVideo');
     if (!batchVideo) throw new Error('Elemento de vídeo batch não encontrado');
@@ -609,7 +619,7 @@ window.playLessonAsBatchSegments = async (lessonText) => {
 
         // Shorter timeout per segment
         const start = Date.now();
-        const timeoutMs = 45000; // 45s
+        const timeoutMs = 90000; // 90s to accommodate Azure processing
         let resultUrl = null, status = 'NotStarted';
         while (!teachingBatchCancel.cancel && Date.now() - start < timeoutMs) {
             await new Promise(r => setTimeout(r, 2000));
@@ -618,6 +628,9 @@ window.playLessonAsBatchSegments = async (lessonText) => {
             const sj = await st.json();
             status = sj.status;
             resultUrl = sj.resultUrl;
+            if (status && status !== 'Succeeded') {
+                console.debug('Batch status:', status);
+            }
             if (status === 'Succeeded' && resultUrl) break;
             if (status === 'Failed') throw new Error('Batch do segmento falhou');
         }
@@ -780,12 +793,13 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
         if (hybridOn) {
             // Hybrid mode: submit to batch and play clip as near-live
             document.getElementById('stopSpeaking').disabled = false;
-            document.getElementById('audio').muted = false;
+            const audioEl = document.getElementById('audio');
+            if (audioEl) audioEl.muted = false;
             try {
                 const region = document.getElementById('region')?.value || '';
                 const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
                 const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
-                const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
+                const backgroundColor = normalizeBatchBackgroundColor(document.getElementById('backgroundColor')?.value || '#FFFFFFFF');
                 const payload = { region, ssml: spokenSsml, character, style, backgroundColor, videoFormat: 'mp4', videoCodec: 'h264', subtitleType: 'soft_embedded' };
                 hybridCancel = { cancel: false };
                 const submit = await fetch('/api/avatar/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -820,14 +834,16 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
             } catch (hybridErr) {
                 log('ℹ️ Hybrid indisponível, falando em tempo real: ' + (hybridErr?.message || hybridErr));
                 // Fallback imediato para tempo real TTS
-                document.getElementById('audio').muted = false;
+                const audioEl2 = document.getElementById('audio');
+                if (audioEl2) audioEl2.muted = false;
                 document.getElementById('stopSpeaking').disabled = false;
                 await avatarSynthesizer.speakSsmlAsync(spokenSsml);
                 document.getElementById('stopSpeaking').disabled = true;
             }
         } else {
             // Real-time default
-            document.getElementById('audio').muted = false;
+            const audioEl3 = document.getElementById('audio');
+            if (audioEl3) audioEl3.muted = false;
             document.getElementById('stopSpeaking').disabled = false;
             await avatarSynthesizer.speakSsmlAsync(spokenSsml);
             document.getElementById('stopSpeaking').disabled = true;
@@ -1288,7 +1304,8 @@ window.generateBatchClip = async () => {
             log('ℹ️ Fale algo primeiro ou inicie uma lição para gerar SSML.');
             return;
         }
-        const region = document.getElementById('region')?.value || '';
+    const region = document.getElementById('region')?.value || '';
+    if (!region) { log('⚠️ Selecione a região do Speech antes de gerar o clipe.'); return; }
         const character = document.getElementById('talkingAvatarCharacter')?.value || 'lisa';
         const style = document.getElementById('talkingAvatarStyle')?.value || 'casual-sitting';
         const backgroundColor = document.getElementById('backgroundColor')?.value || '#FFFFFFFF';
