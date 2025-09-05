@@ -14,6 +14,8 @@ var resumeLessonAfterAnswer = false;
 var lastSpokenSsml = '';
 var hybridCancel = { cancel: false };
 var teachingBatchCancel = { cancel: false };
+// Default to UDP for WebRTC; set to true to force TURN over TCP if needed (e.g., restricted networks)
+var useTcpForWebRTC = false;
 
 // NEW: Teaching mode state
 var isTeachingMode = false;
@@ -1240,7 +1242,9 @@ window.startSession = () => {
 window.speak = () => {
     document.getElementById('speak').disabled = true;
     document.getElementById('stopSpeaking').disabled = false
-    document.getElementById('audio').muted = false
+    // Unmute audio track if present (created after WebRTC ontrack)
+    const audioEl = document.getElementById('audio');
+    if (audioEl) audioEl.muted = false
     let spokenText = document.getElementById('spokenText').value
     let ttsVoice = document.getElementById('ttsVoice').value
     // Reuse the SSML builder so gesture bookmarks and prosody settings apply here too
@@ -1363,15 +1367,24 @@ window.stopSession = () => {
 }
 
 window.updataTransparentBackground = () => {
-    if (document.getElementById('transparentBackground').checked) {
-        document.body.background = './image/background.png'
-        document.getElementById('backgroundColor').value = '#00FF00FF'
-        document.getElementById('backgroundColor').disabled = true
-    } else {
-        document.body.background = ''
-        document.getElementById('backgroundColor').value = '#FFFFFFFF'
-        document.getElementById('backgroundColor').disabled = false
-    }
+    const isOn = document.getElementById('transparentBackground').checked;
+    // Visual backdrop cues
+    document.body.background = isOn ? './image/background.png' : ''
+    document.getElementById('backgroundColor').value = isOn ? '#00FF00FF' : '#FFFFFFFF'
+    document.getElementById('backgroundColor').disabled = isOn
+
+    // Keep avatar visible when toggled after session start
+    try {
+        const remoteVideoDiv = document.getElementById('remoteVideo');
+        const canvas = document.getElementById('canvas');
+        if (isOn) {
+            if (remoteVideoDiv) remoteVideoDiv.style.width = '0.1px';
+            if (canvas) { canvas.hidden = false; const ctx = canvas.getContext('2d'); if (ctx) ctx.clearRect(0,0,canvas.width,canvas.height); }
+        } else {
+            if (canvas) canvas.hidden = true;
+            if (remoteVideoDiv) remoteVideoDiv.style.width = '100%';
+        }
+    } catch {}
 }
 
 window.updatePrivateEndpoint = () => {
