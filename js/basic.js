@@ -6,97 +6,40 @@ var avatarSynthesizer
 var peerConnection
 var k = false
 var previousAnimationFrameTimestamp = 0;
-var chatHistory = [];
-var isAdvancing = false;
-var isSpeaking = false;
-var currentSpeechKind = 'idle';
-var resumeLessonAfterAnswer = false;
-var lastSpokenSsml = '';
-var hybridCancel = { cancel: false };
-var teachingBatchCancel = { cancel: false };
-
-// NEW: Teaching mode state
-var isTeachingMode = false;
-var selectedCourseId = null;
-var teachingState = {
-    isActive: false,
-    currentTopic: '',
-    currentSubtask: '',
-    progress: { topicIndex: 0, subtaskIndex: 0, totalTopics: 0, totalSubtasks: 0 },
-    currentLessonContent: '',
-    lessonParagraphs: [],
-    lessonIndex: 0,
-    lessonActive: false
-};
-
-// Logger
-const log = msg => {
-    document.getElementById('logging').innerHTML += msg + '<br>'
-}
-
-// ============ Gesture Analyzer (SSML bookmark friendly) ============
-// Supported gesture samples by character:style (subset; extend as needed)
-const SUPPORTED_GESTURES = {
-    'lisa:casual-sitting': new Set(['wave-left-1','wave-left-2','thumbsup-left-1','show-front-1','show-left-1','show-right-1','point-left-1','point-right-1','numeric1-left-1']),
-    'lisa:graceful-sitting': new Set(['wave-left-1','wave-left-2','thumbsup-left','show-left-1','show-right-1']),
-    'lori:graceful': new Set(['hello','thanks','nod','applaud','show-left','show-right']),
-    'lori:casual': new Set(['hello','thanks','come-on','good']),
-    'meg:formal': new Set(['say-hi','thanks','applaud','number-one','slide-from-left-to-right']),
-    'max:business': new Set(['say-hi','thanks','number-one','front-right'])
-}
-
-function currentAvatarKey() {
+// Helpers for gesture placeholders used by buildSsml
+function chooseGesture(options) {
     try {
-        const ch = (document.getElementById('talkingAvatarCharacter')?.value || '').toLowerCase();
-        const st = (document.getElementById('talkingAvatarStyle')?.value || '').toLowerCase();
-        return `${ch}:${st}`;
-    } catch { return 'lisa:casual-sitting'; }
+        const idx = Math.floor(Math.random() * options.length);
+        return options[idx];
+    } catch { return null; }
 }
 
-function chooseGesture(preferredList) {
-    const key = currentAvatarKey();
-    const supported = SUPPORTED_GESTURES[key];
-    if (!supported) return null;
-    for (const g of preferredList) {
-        if (supported.has(g)) return g;
-    }
-    return null;
-}
-
-// Insert lightweight gesture placeholders into text. Placeholders: <<gesture.NAME>>
 function insertGesturePlaceholders(text) {
-    if (!text) return text;
-    // Avoid overuse: limit per paragraph
-    const paragraphs = (text || '').split(/\n\n+/);
+    if (!text) return '';
+    let used = 0;
+    const paragraphs = String(text).split(/\n\n+/);
     const processed = paragraphs.map(p => {
-        let used = 0;
         let out = p;
-        // Greetings
         if (/(?:\b(olá|oi|hello|bem[- ]?vindo|bem[- ]?vindos)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['wave-left-1','hello','say-hi']);
             if (g) { out = out.replace(/\b(olá|oi|hello|bem[- ]?vindo|bem[- ]?vindos)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
-        // Thanks
         if (/(?:\b(obrigado|obrigada|thanks|valeu)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['thanks','applaud','thumbsup-left-1']);
             if (g) { out = out.replace(/\b(obrigado|obrigada|thanks|valeu)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
-        // Emphasis words
         if (/(?:\b(atenção|importante)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['show-front-1','front-right']);
             if (g) { out = out.replace(/\b(atenção|importante)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
-        // Enumerations: "primeiro", "1." → number one gesture
         if (/(^|\s)(1\.|1º|primeiro)\b/i.test(out) && used < 2) {
             const g = chooseGesture(['numeric1-left-1','number-one']);
             if (g) { out = out.replace(/(^|\s)(1\.|1º|primeiro)\b/i, (m, sp) => `${sp}${m.trim()} <<gesture.${g}>>`); used++; }
         }
-        // Pointing when saying "veja" / "olhe"
         if (/(?:\b(veja|olhe)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['point-left-1','show-left-1','show-right-1']);
             if (g) { out = out.replace(/\b(veja|olhe)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
         }
-        // Affirmative cue → nod
         if (/(?:\b(certo\?|ok\?|vamos lá\?)\b)/i.test(out) && used < 2) {
             const g = chooseGesture(['nod']);
             if (g) { out = out.replace(/\b(certo\?|ok\?|vamos lá\?)\b/i, m => `${m} <<gesture.${g}>>`); used++; }
@@ -294,8 +237,8 @@ window.showCourseSelection = () => {
     
     // Reset controls
     document.getElementById('startTeaching').disabled = true;
-    document.getElementById('pauseTeaching').disabled = true;
-    document.getElementById('nextLesson').disabled = true;
+    const pauseBtn = document.getElementById('pauseTeaching'); if (pauseBtn) pauseBtn.style.display = 'none';
+    const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = true;
     document.getElementById('stopTeaching').disabled = true;
     document.getElementById('backToCourses').disabled = true;
 };
@@ -327,7 +270,7 @@ window.startTeaching = async () => {
         
         // Update UI
     document.getElementById('startTeaching').disabled = true;
-    document.getElementById('pauseTeaching').disabled = false;
+    const pauseBtn = document.getElementById('pauseTeaching'); if (pauseBtn) pauseBtn.style.display = 'none';
     const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = false;
     document.getElementById('stopTeaching').disabled = false;
         document.getElementById('backToCourses').disabled = false;
@@ -361,7 +304,7 @@ window.stopTeaching = async () => {
         } catch {}
         // Update UI
         document.getElementById('startTeaching').disabled = false;
-    document.getElementById('pauseTeaching').disabled = true;
+    const pauseBtn2 = document.getElementById('pauseTeaching'); if (pauseBtn2) pauseBtn2.style.display = 'none';
     const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = true;
         document.getElementById('stopTeaching').disabled = true;
         document.getElementById('backToCourses').disabled = true;
@@ -379,19 +322,10 @@ window.stopTeaching = async () => {
 };
 
 // Pause teaching (stop avatar speaking)
+// Pause disabled in simplified controls; use stopPlayback instead
 window.pauseTeaching = () => {
-    try {
-        if (avatarSynthesizer) {
-            avatarSynthesizer.stopSpeakingAsync();
-            log('⏸️ Avatar pausado');
-        }
-        document.getElementById('pauseTeaching').disabled = true;
-        setTimeout(() => {
-            document.getElementById('pauseTeaching').disabled = false;
-        }, 2000);
-    } catch (err) {
-        log('Erro ao pausar: ' + err.message);
-    }
+    const btn = document.getElementById('pauseTeaching'); if (btn) btn.style.display = 'none';
+    window.stopPlayback();
 };
 
 // Show pending questions at end of session
@@ -775,7 +709,7 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
         const hybridOn = document.getElementById('hybridGesturesMode')?.checked;
         if (hybridOn) {
             // Hybrid mode: submit to batch and play clip as near-live
-            document.getElementById('stopSpeaking').disabled = false;
+            const stopBtn = document.getElementById('stopPlayback'); if (stopBtn) stopBtn.disabled = false;
             document.getElementById('audio').muted = false;
             try {
                 const region = document.getElementById('region')?.value || '';
@@ -812,21 +746,21 @@ window.speakLesson = async (content, ssmlOptions = undefined, kind = 'generic') 
                     batchVideo.hidden = false;
                     try { await batchVideo.play(); } catch {}
                 }
-                document.getElementById('stopSpeaking').disabled = true;
+                const stopBtn2 = document.getElementById('stopPlayback'); if (stopBtn2) stopBtn2.disabled = true;
             } catch (hybridErr) {
                 log('ℹ️ Hybrid indisponível, falando em tempo real: ' + (hybridErr?.message || hybridErr));
                 // Fallback imediato para tempo real TTS
                 document.getElementById('audio').muted = false;
-                document.getElementById('stopSpeaking').disabled = false;
+                const stopBtn3 = document.getElementById('stopPlayback'); if (stopBtn3) stopBtn3.disabled = false;
                 await avatarSynthesizer.speakSsmlAsync(spokenSsml);
-                document.getElementById('stopSpeaking').disabled = true;
+                const stopBtn4 = document.getElementById('stopPlayback'); if (stopBtn4) stopBtn4.disabled = true;
             }
         } else {
             // Real-time default
             document.getElementById('audio').muted = false;
-            document.getElementById('stopSpeaking').disabled = false;
+            const stopBtn5 = document.getElementById('stopPlayback'); if (stopBtn5) stopBtn5.disabled = false;
             await avatarSynthesizer.speakSsmlAsync(spokenSsml);
-            document.getElementById('stopSpeaking').disabled = true;
+            const stopBtn6 = document.getElementById('stopPlayback'); if (stopBtn6) stopBtn6.disabled = true;
         }
         
     } catch (err) {
@@ -1016,13 +950,10 @@ function setupWebRTC(iceServerUrl, iceServerUsername, iceServerCredential) {
 
         if (peerConnection.iceConnectionState === 'connected') {
             document.getElementById('stopSession').disabled = false
-            document.getElementById('speak').disabled = false
             document.getElementById('configuration').hidden = true
         }
 
         if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
-            document.getElementById('speak').disabled = true
-            document.getElementById('stopSpeaking').disabled = true
             document.getElementById('stopSession').disabled = true
             document.getElementById('startSession').disabled = false
             document.getElementById('configuration').hidden = false
